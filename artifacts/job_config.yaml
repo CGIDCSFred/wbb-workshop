@@ -1,0 +1,95 @@
+# WBBAW Nightly ETL Job Configuration
+# ---------------------------------------------------------------------------
+# Job:      wbbaw-nightly
+# Schedule: Daily, 01:00 UTC
+# SLA:      Complete by 06:00 UTC (before business day reporting refresh)
+# Owner:    WBB Data Services
+# Updated:  2026-01-20 (D. Osei) — added approved_dt to extract parameters
+#
+# Dependencies:
+#   Predecessor: wbb-operational-backup (must complete before this job starts)
+#   Successor:   wbb-reporting-refresh (triggered on exit code 0 or 4)
+#
+# Restart:
+#   Restart from extract:  set RESTART_FROM=extract
+#   Restart from load:     set RESTART_FROM=load
+#   Full historical re-run: set ETL_MODE=FULL
+# ---------------------------------------------------------------------------
+
+job:
+  name: wbbaw-nightly
+  description: Nightly extract-load from WBB operational DB to WBBAW warehouse
+
+steps:
+
+  # --------------------------------------------------------------------------
+  # Step 1: Extract
+  # Reads new application records from the WBB operational database,
+  # applies exclusion rules, and writes a staging file.
+  # --------------------------------------------------------------------------
+  - name: extract
+    program: wbbxtr
+    params:
+      ETL_MODE: INCREMENTAL
+      EXCLUDE_TEST: "true"
+      EXCLUDE_ABANDONED: "true"
+    on_success: load
+    on_failure: notify_failure
+    on_warning: load          # proceed to load even with lookup warnings
+
+  # --------------------------------------------------------------------------
+  # Step 2: Load
+  # Reads the staging file, upserts dimensions, and loads the fact table.
+  # Skipped if extract produced no records (exit code 4).
+  # --------------------------------------------------------------------------
+  - name: load
+    program: wbbldr
+    params:
+      COMMIT_INTERVAL: "5000"
+      ERROR_THRESHOLD: "50"
+    on_success: audit
+    on_failure: notify_failure
+
+  # --------------------------------------------------------------------------
+  # Step 3: Audit
+  # Validates loaded record counts against source counts and writes a
+  # reconciliation report to the audit log. Required by WBB Ops runbook.
+  # --------------------------------------------------------------------------
+  - name: audit
+    program: wbbaudit
+    params:
+      COMPARE_COUNTS: "true"
+      ALERT_ON_VARIANCE: "5"
+      AUDIT_LOG: /var/log/wbbaw/audit
+    on_success: notify_success
+    on_failure: notify_failure
+
+  # --------------------------------------------------------------------------
+  # Step 4a: Notify success
+  # Posts completion message to #wbb-data-ops Slack channel and triggers
+  # the downstream reporting refresh.
+  # --------------------------------------------------------------------------
+  - name: notify_success
+    program: wbbnotify
+    params:
+      CHANNEL: "#wbb-data-ops"
+      STATUS: SUCCESS
+      TRIGGER_DOWNSTREAM: "true"
+
+  # --------------------------------------------------------------------------
+  # Step 4b: Notify failure
+  # Posts failure alert to #wbb-data-ops and pages the on-call engineer.
+  # --------------------------------------------------------------------------
+  - name: notify_failure
+    program: wbbnotify
+    params:
+      CHANNEL: "#wbb-data-ops"
+      STATUS: FAILURE
+      TRIGGER_DOWNSTREAM: "false"
+      PAGE_ONCALL: "true"
+
+environment:
+  WBB_SOURCE_DSN:  "${WBB_SOURCE_DSN}"    # injected from secrets manager
+  WBB_TARGET_DSN:  "${WBB_TARGET_DSN}"    # injected from secrets manager
+  STAGE_PATH:      "/tmp/wbbaw_stage.jsonl"
+  LOG_LEVEL:       "INFO"

@@ -1,0 +1,108 @@
+# docker-compose.yml
+# WBBAW ETL pipeline — local development and demo environment
+# Regenerated from spec alone — wbbaw_spec_v1.md
+#
+# Services:
+#   source-db    — WBB operational source (PostgreSQL 14, wbb schema)
+#   warehouse-db — WBBAW analytics warehouse (PostgreSQL 14, wbbaw schema)
+#   etl          — ETL runner (extract → load); profile "etl" so it doesn't
+#                  start automatically with `docker compose up`
+#
+# Usage:
+#   # Start databases
+#   docker compose up -d source-db warehouse-db
+#
+#   # Run the full ETL (extract + load)
+#   docker compose --profile etl run --rm etl
+#
+#   # Run incremental ETL for a specific date
+#   docker compose --profile etl run --rm -e RUN_DATE=2026-01-15 etl
+#
+#   # Run full historical load
+#   docker compose --profile etl run --rm -e ETL_MODE=FULL etl
+
+version: "3.9"
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # source-db — WBB operational source database
+  # ---------------------------------------------------------------------------
+  source-db:
+    image: postgres:14-alpine
+    container_name: wbb_source_db
+    environment:
+      POSTGRES_DB:       wbb_operational
+      POSTGRES_USER:     wbb_etl
+      POSTGRES_PASSWORD: wbb_etl_secret
+    ports:
+      - "5432:5432"
+    volumes:
+      - source_data:/var/lib/postgresql/data
+      - ./source_schema.sql:/docker-entrypoint-initdb.d/01_source_schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wbb_etl -d wbb_operational"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ---------------------------------------------------------------------------
+  # warehouse-db — WBBAW analytics warehouse
+  # ---------------------------------------------------------------------------
+  warehouse-db:
+    image: postgres:14-alpine
+    container_name: wbb_warehouse_db
+    environment:
+      POSTGRES_DB:       wbb_warehouse
+      POSTGRES_USER:     wbb_etl
+      POSTGRES_PASSWORD: wbb_etl_secret
+    ports:
+      - "5433:5432"
+    volumes:
+      - warehouse_data:/var/lib/postgresql/data
+      - ./target_schema.sql:/docker-entrypoint-initdb.d/01_target_schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wbb_etl -d wbb_warehouse"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ---------------------------------------------------------------------------
+  # etl — Extract and load runner
+  # Profile "etl": not started by default; run with --profile etl.
+  # ---------------------------------------------------------------------------
+  etl:
+    image: python:3.11-slim
+    container_name: wbb_etl
+    profiles:
+      - etl
+    depends_on:
+      source-db:
+        condition: service_healthy
+      warehouse-db:
+        condition: service_healthy
+    environment:
+      WBB_SOURCE_DSN:  "host=source-db    port=5432 dbname=wbb_operational user=wbb_etl password=wbb_etl_secret"
+      WBB_TARGET_DSN:  "host=warehouse-db port=5432 dbname=wbb_warehouse   user=wbb_etl password=wbb_etl_secret"
+      STAGE_PATH:      "/tmp/wbbaw_stage.jsonl"
+      ETL_MODE:        "${ETL_MODE:-INCREMENTAL}"
+      RUN_DATE:        "${RUN_DATE:-}"
+      LOG_LEVEL:       "${LOG_LEVEL:-INFO}"
+      COMMIT_INTERVAL: "${COMMIT_INTERVAL:-5000}"
+      ERROR_THRESHOLD: "${ERROR_THRESHOLD:-50}"
+    volumes:
+      - ./etl:/app
+    working_dir: /app
+    command: >
+      sh -c "
+        pip install --quiet psycopg2-binary &&
+        echo '--- Running extract ---' &&
+        python extract.py &&
+        echo '--- Running load ---' &&
+        python load.py &&
+        echo '--- ETL complete ---'
+      "
+
+volumes:
+  source_data:
+  warehouse_data:

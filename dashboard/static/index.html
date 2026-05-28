@@ -1,0 +1,810 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WBB Onboarding Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #0f1117;
+    color: #e2e8f0;
+    min-height: 100vh;
+  }
+
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 28px;
+    background: #1a1d27;
+    border-bottom: 1px solid #2d3148;
+  }
+
+  header h1 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: #fff;
+  }
+
+  header h1 span {
+    color: #60a5fa;
+  }
+
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    font-size: 0.8rem;
+    color: #94a3b8;
+  }
+
+  .live-dot {
+    display: inline-block;
+    width: 8px; height: 8px;
+    background: #22c55e;
+    border-radius: 50%;
+    margin-right: 6px;
+    animation: pulse 1.5s infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+
+  .column-labels {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    padding: 10px 28px 0;
+    gap: 20px;
+  }
+
+  .col-label {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 6px 14px;
+    border-radius: 4px;
+  }
+
+  .col-label.source {
+    background: #1e3a5f;
+    color: #60a5fa;
+    border-left: 3px solid #3b82f6;
+  }
+
+  .col-label.warehouse {
+    background: #1e3a2f;
+    color: #4ade80;
+    border-left: 3px solid #22c55e;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    padding: 12px 28px 28px;
+  }
+
+  .card {
+    background: #1a1d27;
+    border: 1px solid #2d3148;
+    border-radius: 10px;
+    padding: 20px;
+  }
+
+  .card h2 {
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #94a3b8;
+    margin-bottom: 16px;
+  }
+
+  /* Live Feed */
+  .feed-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.78rem;
+  }
+
+  .feed-table th {
+    text-align: left;
+    color: #64748b;
+    font-weight: 500;
+    padding: 4px 8px;
+    border-bottom: 1px solid #2d3148;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .feed-table td {
+    padding: 6px 8px;
+    border-bottom: 1px solid #1e2235;
+    color: #cbd5e1;
+  }
+
+  .feed-table tr:first-child td {
+    color: #fff;
+  }
+
+  .badge {
+    display: inline-block;
+    padding: 2px 7px;
+    border-radius: 3px;
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+  }
+
+  .badge.APPROVED  { background: #14532d; color: #4ade80; }
+  .badge.DECLINED  { background: #450a0a; color: #f87171; }
+  .badge.SUBMITTED { background: #1e3a5f; color: #60a5fa; }
+  .badge.IN_REVIEW { background: #3b2800; color: #fb923c; }
+  .badge.ABANDONED { background: #1e1b2e; color: #a78bfa; }
+
+  /* Funnel */
+  .funnel-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+
+  .funnel-stat {
+    background: #0f1117;
+    border: 1px solid #2d3148;
+    border-radius: 8px;
+    padding: 14px 16px;
+  }
+
+  .funnel-stat .label {
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #64748b;
+    margin-bottom: 6px;
+  }
+
+  .funnel-stat .value {
+    font-size: 1.9rem;
+    font-weight: 700;
+    line-height: 1;
+  }
+
+  .funnel-stat.total  .value { color: #e2e8f0; }
+  .funnel-stat.approved .value { color: #4ade80; }
+  .funnel-stat.declined .value { color: #f87171; }
+  .funnel-stat.abandoned .value { color: #a78bfa; }
+  .funnel-stat.submitted .value { color: #60a5fa; }
+  .funnel-stat.inreview .value { color: #fb923c; }
+
+  /* Empty warehouse state */
+  .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 160px;
+    color: #475569;
+    font-size: 0.82rem;
+    text-align: center;
+    gap: 8px;
+  }
+
+  .empty-state .hint {
+    font-family: monospace;
+    font-size: 0.72rem;
+    background: #0f1117;
+    padding: 6px 12px;
+    border-radius: 4px;
+    color: #60a5fa;
+  }
+
+  .chart-container {
+    position: relative;
+    height: 220px;
+  }
+
+  #last-updated {
+    font-size: 0.72rem;
+  }
+
+  #reset-btn, #etl-btn {
+    background: #1e2235;
+    border: 1px solid #3d4266;
+    color: #94a3b8;
+    padding: 6px 14px;
+    border-radius: 5px;
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  #etl-btn:hover { background: #1e3a2f; color: #4ade80; border-color: #22c55e; }
+  #reset-btn:hover { background: #2d3148; color: #e2e8f0; border-color: #60a5fa; }
+
+  #etl-btn.running { color: #4ade80; border-color: #22c55e; }
+  #reset-btn.resetting { color: #fb923c; border-color: #fb923c; }
+
+  /* Proof section */
+  .proof-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    padding: 0 28px 28px;
+  }
+
+  .proof-btn {
+    background: #1e2235;
+    border: 1px solid #3d4266;
+    color: #94a3b8;
+    padding: 7px 16px;
+    border-radius: 5px;
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: all 0.15s;
+    margin-bottom: 14px;
+  }
+
+  .proof-btn:hover { background: #2d1e3a; color: #c4b5fd; border-color: #a78bfa; }
+  .proof-btn.running { color: #a78bfa; border-color: #a78bfa; }
+  .proof-btn.deployed { color: #4ade80; border-color: #22c55e; }
+
+  .equiv-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.76rem;
+    margin-bottom: 14px;
+  }
+
+  .equiv-table th {
+    text-align: left;
+    color: #64748b;
+    font-weight: 500;
+    padding: 4px 8px;
+    border-bottom: 1px solid #2d3148;
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .equiv-table td {
+    padding: 5px 8px;
+    border-bottom: 1px solid #1e2235;
+    color: #cbd5e1;
+    font-family: monospace;
+    font-size: 0.73rem;
+  }
+
+  .status-badge {
+    display: inline-block;
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    margin-top: 4px;
+  }
+
+  .status-badge.equiv  { background: #14532d; color: #4ade80; border: 1px solid #22c55e; }
+  .status-badge.differs { background: #450a0a; color: #f87171; border: 1px solid #ef4444; }
+  .status-badge.pending { background: #1e2235; color: #64748b; border: 1px solid #3d4266; }
+
+  .match-icon { color: #4ade80; }
+  .diff-icon  { color: #f87171; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>WBB <span>Onboarding</span> Dashboard</h1>
+  <div class="header-right">
+    <div><span class="live-dot"></span>Live</div>
+    <div id="last-updated">—</div>
+    <button id="etl-btn" onclick="runEtl()" title="Load source data into the analytics warehouse">
+      ⚡ Run ETL
+    </button>
+    <button id="reset-btn" onclick="resetData()" title="Clear source data and restart the live feed from 0">
+      ↺ Restart Demo
+    </button>
+  </div>
+</header>
+
+<div class="column-labels">
+  <div class="col-label source">Source DB — Operational (live)</div>
+  <div class="col-label warehouse">Analytics Warehouse (after ETL)</div>
+</div>
+
+<div class="grid">
+
+  <!-- TOP LEFT: Live Feed -->
+  <div class="card">
+    <h2>Live Application Feed</h2>
+    <table class="feed-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Company</th>
+          <th>Segment</th>
+          <th>Size</th>
+          <th>Status</th>
+          <th>Time</th>
+        </tr>
+      </thead>
+      <tbody id="feed-body">
+        <tr><td colspan="6" style="color:#475569;padding:20px 8px;">Loading...</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- TOP RIGHT: Weekly Volume -->
+  <div class="card">
+    <h2>Weekly Onboarding Volume</h2>
+    <div id="weekly-empty" class="empty-state" style="display:none">
+      <div>Warehouse not loaded yet</div>
+      <div class="hint">Click ⚡ Run ETL above</div>
+    </div>
+    <div class="chart-container" id="weekly-chart-wrap">
+      <canvas id="weeklyChart"></canvas>
+    </div>
+  </div>
+
+  <!-- BOTTOM LEFT: Funnel -->
+  <div class="card">
+    <h2>Application Funnel — Source DB</h2>
+    <div class="funnel-grid">
+      <div class="funnel-stat total">
+        <div class="label">Total</div>
+        <div class="value" id="f-total">—</div>
+      </div>
+      <div class="funnel-stat approved">
+        <div class="label">Approved</div>
+        <div class="value" id="f-approved">—</div>
+      </div>
+      <div class="funnel-stat declined">
+        <div class="label">Declined</div>
+        <div class="value" id="f-declined">—</div>
+      </div>
+      <div class="funnel-stat abandoned">
+        <div class="label">Abandoned</div>
+        <div class="value" id="f-abandoned">—</div>
+      </div>
+      <div class="funnel-stat submitted">
+        <div class="label">Submitted</div>
+        <div class="value" id="f-submitted">—</div>
+      </div>
+      <div class="funnel-stat inreview">
+        <div class="label">In Review</div>
+        <div class="value" id="f-inreview">—</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- BOTTOM RIGHT: Approval by Segment -->
+  <div class="card">
+    <h2>Approval Rate by Segment</h2>
+    <div id="segment-empty" class="empty-state" style="display:none">
+      <div>Warehouse not loaded yet</div>
+      <div class="hint">Click ⚡ Run ETL above</div>
+    </div>
+    <div class="chart-container" id="segment-chart-wrap">
+      <canvas id="segmentChart"></canvas>
+    </div>
+  </div>
+
+</div>
+
+<!-- PROOF SECTION -->
+<div class="column-labels" style="padding-top: 20px">
+  <div class="col-label source" style="grid-column: 1 / -1; background: #2d1e3a; border-color: #a78bfa; color: #c4b5fd; border-left-color: #a78bfa;">
+    PROOF — SPEC SUFFICIENCY DEMONSTRATION
+  </div>
+</div>
+
+<div class="proof-grid">
+
+  <!-- PANEL 5: Equivalence Check -->
+  <div class="card">
+    <h2>Equivalence Check</h2>
+    <button id="both-etl-btn" class="proof-btn" onclick="runBothEtls()">
+      ⚡ Run Both ETLs
+    </button>
+    <div id="equiv-empty" class="empty-state" style="display:none">
+      <div>Load both warehouses first</div>
+      <div class="hint">Click ⚡ Run Both ETLs above</div>
+    </div>
+    <div id="equiv-content" style="display:none">
+      <table class="equiv-table">
+        <thead>
+          <tr>
+            <th>ISO Week</th>
+            <th>Orig Submitted</th>
+            <th>Regen Submitted</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="equiv-body"></tbody>
+      </table>
+      <div id="equiv-status"></div>
+    </div>
+    <div id="equiv-loading" class="empty-state">
+      <div style="color:#475569">Click Run Both ETLs to compare warehouses</div>
+    </div>
+  </div>
+
+  <!-- PANEL 6: New Feature -->
+  <div class="card">
+    <h2>New Feature: Avg Days to Approval by Segment</h2>
+    <button id="deploy-btn" class="proof-btn" onclick="deployFeature()">
+      Deploy New Feature
+    </button>
+    <div id="feature-not-deployed" class="empty-state" style="display:none">
+      <div style="color:#64748b">Not yet deployed</div>
+      <div class="hint">Click Deploy New Feature above</div>
+    </div>
+    <div id="feature-content" style="display:none">
+      <table class="equiv-table">
+        <thead>
+          <tr>
+            <th>Segment</th>
+            <th>Orig Avg Days</th>
+            <th>Regen Avg Days</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="feature-body"></tbody>
+      </table>
+      <div id="feature-status"></div>
+    </div>
+    <div id="feature-loading" class="empty-state">
+      <div style="color:#475569">Deploy the view to both warehouses to compare</div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+let weeklyChart = null;
+let segmentChart = null;
+
+async function fetchJSON(url, method = 'GET') {
+  const r = await fetch(url, { method });
+  return r.json();
+}
+
+async function updateFeed() {
+  const data = await fetchJSON('/api/live-feed');
+  const tbody = document.getElementById('feed-body');
+  tbody.innerHTML = data.map((r, i) => `
+    <tr>
+      <td style="color:#475569">${r.id}</td>
+      <td>${r.company}</td>
+      <td style="color:#94a3b8">${r.category}</td>
+      <td style="color:#94a3b8">${r.size}</td>
+      <td><span class="badge ${r.status}">${r.status}</span></td>
+      <td style="color:#475569;font-family:monospace">${r.time}</td>
+    </tr>
+  `).join('');
+}
+
+async function updateFunnel() {
+  const d = await fetchJSON('/api/funnel');
+  document.getElementById('f-total').textContent    = d.total.toLocaleString();
+  document.getElementById('f-approved').textContent = d.approved.toLocaleString();
+  document.getElementById('f-declined').textContent = d.declined.toLocaleString();
+  document.getElementById('f-abandoned').textContent = d.abandoned.toLocaleString();
+  document.getElementById('f-submitted').textContent = d.submitted.toLocaleString();
+  document.getElementById('f-inreview').textContent  = d.in_review.toLocaleString();
+}
+
+async function updateWeekly() {
+  const d = await fetchJSON('/api/weekly-volume');
+  const wrap  = document.getElementById('weekly-chart-wrap');
+  const empty = document.getElementById('weekly-empty');
+
+  if (!d.loaded || d.weeks.length === 0) {
+    wrap.style.display = 'none';
+    empty.style.display = 'flex';
+    return;
+  }
+  wrap.style.display = 'block';
+  empty.style.display = 'none';
+
+  if (!weeklyChart) {
+    weeklyChart = new Chart(document.getElementById('weeklyChart'), {
+      type: 'bar',
+      data: {
+        labels: d.weeks,
+        datasets: [
+          { label: 'Submitted', data: d.submitted, backgroundColor: '#1d4ed8' },
+          { label: 'Approved',  data: d.approved,  backgroundColor: '#15803d' },
+          { label: 'Declined',  data: d.declined,  backgroundColor: '#b91c1c' },
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { labels: { color: '#94a3b8', font: { size: 11 } } } },
+        scales: {
+          x: { ticks: { color: '#64748b', font: { size: 10 } }, grid: { color: '#1e2235' } },
+          y: { ticks: { color: '#64748b', font: { size: 10 } }, grid: { color: '#1e2235' } },
+        }
+      }
+    });
+  } else {
+    weeklyChart.data.labels = d.weeks;
+    weeklyChart.data.datasets[0].data = d.submitted;
+    weeklyChart.data.datasets[1].data = d.approved;
+    weeklyChart.data.datasets[2].data = d.declined;
+    weeklyChart.update();
+  }
+}
+
+async function updateSegment() {
+  const d = await fetchJSON('/api/approval-by-segment');
+  const wrap  = document.getElementById('segment-chart-wrap');
+  const empty = document.getElementById('segment-empty');
+
+  if (!d.loaded || d.data.length === 0) {
+    wrap.style.display = 'none';
+    empty.style.display = 'flex';
+    return;
+  }
+  wrap.style.display = 'block';
+  empty.style.display = 'none';
+
+  const labels = d.data.map(r => r.segment);
+  const rates  = d.data.map(r => r.rate);
+
+  if (!segmentChart) {
+    segmentChart = new Chart(document.getElementById('segmentChart'), {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [{
+          label: 'Approval Rate %',
+          data: rates,
+          backgroundColor: rates.map(r =>
+            r >= 75 ? '#15803d' : r >= 60 ? '#1d4ed8' : '#b91c1c'
+          ),
+        }]
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: { label: ctx => ` ${ctx.raw.toFixed(1)}%` }
+          }
+        },
+        scales: {
+          x: {
+            max: 100,
+            ticks: { color: '#64748b', font: { size: 10 }, callback: v => v + '%' },
+            grid: { color: '#1e2235' }
+          },
+          y: { ticks: { color: '#94a3b8', font: { size: 10 } }, grid: { color: '#1e2235' } },
+        }
+      }
+    });
+  } else {
+    segmentChart.data.labels = labels;
+    segmentChart.data.datasets[0].data = rates;
+    segmentChart.data.datasets[0].backgroundColor = rates.map(r =>
+      r >= 75 ? '#15803d' : r >= 60 ? '#1d4ed8' : '#b91c1c'
+    );
+    segmentChart.update();
+  }
+}
+
+async function refresh() {
+  await Promise.all([updateFeed(), updateFunnel(), updateWeekly(), updateSegment()]);
+  document.getElementById('last-updated').textContent =
+    'Updated ' + new Date().toLocaleTimeString();
+}
+
+async function runEtl() {
+  const btn = document.getElementById('etl-btn');
+  btn.textContent = '⚡ Running...';
+  btn.classList.add('running');
+  btn.disabled = true;
+  await fetchJSON('/api/run-etl', 'POST');
+  await fetchJSON('/api/run-etl/regen', 'POST');
+  weeklyChart = null;
+  segmentChart = null;
+  await refresh();
+  btn.textContent = '⚡ Run ETL';
+  btn.classList.remove('running');
+  btn.disabled = false;
+}
+
+async function resetData() {
+  if (!confirm('Clear all application data and restart the demo from 0 customers?')) return;
+  const btn = document.getElementById('reset-btn');
+  btn.textContent = '↺ Resetting...';
+  btn.classList.add('resetting');
+  btn.disabled = true;
+  await fetch('/api/reset', { method: 'POST' });
+  weeklyChart = null;
+  segmentChart = null;
+  document.getElementById('weeklyChart').getContext('2d').clearRect(0,0,9999,9999);
+  document.getElementById('segmentChart').getContext('2d').clearRect(0,0,9999,9999);
+  await refresh();
+  btn.textContent = '↺ Restart Demo';
+  btn.classList.remove('resetting');
+  btn.disabled = false;
+}
+
+refresh();
+setInterval(refresh, 5000);
+
+// -----------------------------------------------------------------------
+// PROOF SECTION
+// -----------------------------------------------------------------------
+
+async function updateEquivalence() {
+  const d = await fetchJSON('/api/equivalence');
+
+  const empty   = document.getElementById('equiv-empty');
+  const content = document.getElementById('equiv-content');
+  const loading = document.getElementById('equiv-loading');
+
+  if (!d.loaded) {
+    loading.style.display = 'none';
+    empty.style.display   = 'flex';
+    content.style.display = 'none';
+    return;
+  }
+
+  loading.style.display = 'none';
+  empty.style.display   = 'none';
+  content.style.display = 'block';
+
+  // Build lookup maps keyed by week
+  const origByWeek  = {};
+  const regenByWeek = {};
+  d.original.forEach(r    => { origByWeek[r.week]  = r; });
+  d.regenerated.forEach(r => { regenByWeek[r.week] = r; });
+
+  // All weeks, most recent first
+  const allWeeks = [...new Set([
+    ...d.original.map(r => r.week),
+    ...d.regenerated.map(r => r.week),
+  ])].sort().reverse().slice(0, 5);
+
+  const tbody = document.getElementById('equiv-body');
+  tbody.innerHTML = allWeeks.map(week => {
+    const o = origByWeek[week]  || {};
+    const r = regenByWeek[week] || {};
+    const match = o.submitted === r.submitted &&
+                  o.approved  === r.approved  &&
+                  o.declined  === r.declined;
+    const icon = match
+      ? '<span class="match-icon">&#10003;</span>'
+      : '<span class="diff-icon">&#10007;</span>';
+    return `<tr>
+      <td>${week}</td>
+      <td>${o.submitted ?? '—'}</td>
+      <td>${r.submitted ?? '—'}</td>
+      <td>${icon}</td>
+    </tr>`;
+  }).join('');
+
+  const statusEl = document.getElementById('equiv-status');
+  if (d.matches) {
+    statusEl.innerHTML = '<span class="status-badge equiv">&#10003; EQUIVALENT</span>';
+  } else {
+    statusEl.innerHTML = `<span class="status-badge differs">&#10007; DIFFERS (${d.diff_count} week${d.diff_count !== 1 ? 's' : ''})</span>`;
+  }
+}
+
+async function runBothEtls() {
+  const btn = document.getElementById('both-etl-btn');
+  btn.textContent = '⚡ Running...';
+  btn.classList.add('running');
+  btn.disabled = true;
+
+  await fetchJSON('/api/run-etl', 'POST');
+  await fetchJSON('/api/run-etl/regen', 'POST');
+
+  weeklyChart  = null;
+  segmentChart = null;
+  await refresh();
+  await updateEquivalence();
+
+  btn.textContent = '⚡ Run Both ETLs';
+  btn.classList.remove('running');
+  btn.disabled = false;
+}
+
+async function updateNewFeature() {
+  const d = await fetchJSON('/api/new-feature/query');
+
+  const notDeployed = document.getElementById('feature-not-deployed');
+  const content     = document.getElementById('feature-content');
+  const loading     = document.getElementById('feature-loading');
+
+  if (!d.deployed) {
+    notDeployed.style.display = 'flex';
+    content.style.display     = 'none';
+    loading.style.display     = 'none';
+    return;
+  }
+
+  notDeployed.style.display = 'none';
+  loading.style.display     = 'none';
+  content.style.display     = 'block';
+
+  const origBySeg  = {};
+  const regenBySeg = {};
+  d.original.forEach(r    => { origBySeg[r.segment]  = r; });
+  d.regenerated.forEach(r => { regenBySeg[r.segment] = r; });
+
+  const allSegs = [...new Set([
+    ...d.original.map(r => r.segment),
+    ...d.regenerated.map(r => r.segment),
+  ])].sort();
+
+  const tbody = document.getElementById('feature-body');
+  tbody.innerHTML = allSegs.map(seg => {
+    const o    = origBySeg[seg]  || {};
+    const r    = regenBySeg[seg] || {};
+    const match = o.avg_days === r.avg_days;
+    const icon = match
+      ? '<span class="match-icon">&#10003;</span>'
+      : '<span class="diff-icon">&#10007;</span>';
+    return `<tr>
+      <td>${seg}</td>
+      <td>${o.avg_days ?? '—'}</td>
+      <td>${r.avg_days ?? '—'}</td>
+      <td>${icon}</td>
+    </tr>`;
+  }).join('');
+
+  const statusEl = document.getElementById('feature-status');
+  if (d.matches) {
+    statusEl.innerHTML = '<span class="status-badge equiv">&#10003; NEW FEATURE EQUIVALENT</span>';
+  } else {
+    statusEl.innerHTML = `<span class="status-badge differs">&#10007; DIFFERS (${d.diff_count} segment${d.diff_count !== 1 ? 's' : ''})</span>`;
+  }
+}
+
+async function deployFeature() {
+  const btn = document.getElementById('deploy-btn');
+  btn.textContent = 'Deploying...';
+  btn.classList.add('running');
+  btn.disabled = true;
+
+  const result = await fetchJSON('/api/new-feature/deploy', 'POST');
+
+  if (result.original && result.regenerated) {
+    btn.textContent = 'Deployed';
+    btn.classList.remove('running');
+    btn.classList.add('deployed');
+  } else {
+    btn.textContent = 'Deploy New Feature';
+    btn.classList.remove('running');
+  }
+  btn.disabled = false;
+
+  await updateNewFeature();
+}
+
+// Initial load for proof section
+updateEquivalence();
+updateNewFeature();
+setInterval(updateEquivalence, 10000);
+setInterval(updateNewFeature,  10000);
+</script>
+</body>
+</html>

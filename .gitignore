@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Environment
+.env
+.env.*
+
+# Docker volumes and temp files
+*.jsonl
+
+# VS Code
+.vscode/
+
+# macOS
+.DS_Store
+
+# Demo output directories — kept as empty placeholders
+# spec/ and regenerated/ are populated live during the demo

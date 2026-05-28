@@ -1,0 +1,149 @@
+services:
+
+  # --------------------------------------------------------------------------
+  # Source DB — WBB operational platform database
+  # --------------------------------------------------------------------------
+  source-db:
+    image: postgres:14-alpine
+    container_name: wbb-source
+    environment:
+      POSTGRES_DB:       wbb
+      POSTGRES_USER:     wbb_app
+      POSTGRES_PASSWORD: wbb_pass
+    volumes:
+      - ./artifacts/source_schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+      - source-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wbb_app -d wbb"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # --------------------------------------------------------------------------
+  # Warehouse DB — WBBAW analytics warehouse
+  # --------------------------------------------------------------------------
+  warehouse-db:
+    image: postgres:14-alpine
+    container_name: wbb-warehouse
+    environment:
+      POSTGRES_DB:       wbbaw
+      POSTGRES_USER:     wbbaw_app
+      POSTGRES_PASSWORD: wbbaw_pass
+    volumes:
+      - ./artifacts/target_schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+      - warehouse-data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wbbaw_app -d wbbaw"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # --------------------------------------------------------------------------
+  # Generator — streams new customer onboarding events into source-db
+  # Run `docker compose run --rm generator seed` to populate history first.
+  # Run `docker compose up generator` for the live streaming demo.
+  # --------------------------------------------------------------------------
+  generator:
+    build:
+      context: ./generator
+    container_name: wbb-generator
+    environment:
+      WBB_SOURCE_DSN: postgresql://wbb_app:wbb_pass@source-db:5432/wbb
+    depends_on:
+      source-db:
+        condition: service_healthy
+    command: ["python", "generate.py", "demo", "2"]
+
+  # --------------------------------------------------------------------------
+  # Dashboard — live onboarding dashboard at http://localhost:8080
+  # Left panels: source DB (live). Right panels: warehouse (after ETL).
+  # --------------------------------------------------------------------------
+  dashboard:
+    build:
+      context: ./dashboard
+    container_name: wbb-dashboard
+    environment:
+      WBB_SOURCE_DSN:       postgresql://wbb_app:wbb_pass@source-db:5432/wbb
+      WBB_TARGET_DSN:       postgresql://wbbaw_app:wbbaw_pass@warehouse-db:5432/wbbaw
+      WBB_REGEN_TARGET_DSN: postgresql://wbbaw_app:wbbaw_pass@regen-warehouse-db:5432/wbbaw_regen
+    ports:
+      - "8080:8080"
+    depends_on:
+      source-db:
+        condition: service_healthy
+      warehouse-db:
+        condition: service_healthy
+      regen-warehouse-db:
+        condition: service_healthy
+
+  # --------------------------------------------------------------------------
+  # ETL — run manually during the demo with `docker compose run --rm etl`
+  # --------------------------------------------------------------------------
+  etl:
+    build:
+      context: ./artifacts/etl
+    container_name: wbb-etl
+    environment:
+      WBB_SOURCE_DSN: postgresql://wbb_app:wbb_pass@source-db:5432/wbb
+      WBB_TARGET_DSN: postgresql://wbbaw_app:wbbaw_pass@warehouse-db:5432/wbbaw
+      STAGE_PATH:     /tmp/wbbaw_stage.jsonl
+      ETL_MODE:       INCREMENTAL
+    depends_on:
+      source-db:
+        condition: service_healthy
+      warehouse-db:
+        condition: service_healthy
+    profiles:
+      - etl
+
+  # --------------------------------------------------------------------------
+  # Regenerated warehouse DB — WBBAW analytics warehouse (regenerated schema)
+  # Populated by the regen-etl service.
+  # --------------------------------------------------------------------------
+  regen-warehouse-db:
+    image: postgres:14-alpine
+    container_name: wbb-regen-warehouse
+    environment:
+      POSTGRES_DB:       wbbaw_regen
+      POSTGRES_USER:     wbbaw_app
+      POSTGRES_PASSWORD: wbbaw_pass
+    volumes:
+      - ./demo/fallback/regenerated/target_schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+      - regen-warehouse-data:/var/lib/postgresql/data
+    ports:
+      - "5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wbbaw_app -d wbbaw_regen"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # --------------------------------------------------------------------------
+  # Regenerated ETL — loads source data into the regen warehouse
+  # Run with `docker compose --profile etl run --rm regen-etl`
+  # --------------------------------------------------------------------------
+  regen-etl:
+    build:
+      context: ./demo/fallback/regenerated/etl
+    container_name: wbb-regen-etl
+    environment:
+      WBB_SOURCE_DSN: postgresql://wbb_app:wbb_pass@source-db:5432/wbb
+      WBB_TARGET_DSN: postgresql://wbbaw_app:wbbaw_pass@regen-warehouse-db:5432/wbbaw_regen
+      STAGE_PATH:     /tmp/wbbaw_regen_stage.jsonl
+      ETL_MODE:       FULL
+    depends_on:
+      source-db:
+        condition: service_healthy
+      regen-warehouse-db:
+        condition: service_healthy
+    profiles:
+      - etl
+
+volumes:
+  source-data:
+  warehouse-data:
+  regen-warehouse-data:
