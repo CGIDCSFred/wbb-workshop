@@ -1,260 +1,190 @@
-# WBB Workshop — Leave-Behind Package
+# WBB Workshop — Spec-Driven Development Demo
 
 **Prepared by:** Frederick Ferguson, CGI  
 **For:** TD Business Banking  
-**Purpose:** Enable TD staff to run the spec-driven reverse engineering demo independently
+**Purpose:** Demonstrate the spec-driven reverse engineering method using a fictional WBB analytics warehouse
 
 ---
 
 ## What this demonstrates
 
-This workshop shows a complete, working version of the spec-driven reverse engineering method. It is built around a fictional web banking onboarding platform (WBB) and its analytics warehouse (WBBAW), designed to echo the structure of real modernisation work without using any TD data or IP.
+A complete, working demonstration of spec-driven reverse engineering. Built around a fictional web banking onboarding platform (WBB) and its analytics warehouse (WBBAW), designed to echo the structure of real modernisation work without using any TD data or IP.
 
-The demo follows eight steps:
+The demo runs as a single Streamlit application — no Docker required.
 
-| Step | What happens | What it proves |
-|------|-------------|----------------|
-| 1 | Show a running application with its artifacts | The system exists and works |
-| 2 | Reverse-engineer a forensic spec from the artifacts | Contradictions in the system surface automatically |
-| 3 | Regenerate equivalent artifacts from the spec alone | The spec is sufficient — no code needed |
-| 4 | Compare the original and regenerated artifacts | The method is repeatable |
-| 5 | Deploy the regenerated code as a running application | Two independent systems, same source data |
-| 6 | Compare the two running applications | Same query, same result — equivalence is proven |
-| 7 | Extend the spec with a new feature | The spec is a launchpad, not just a record |
-| 8 | Deploy the new feature to both and compare | New capability, traceable to a single spec amendment |
-
-Steps 4–8 are the proof. They close the loop from "this looks reasonable" to "this is demonstrably equivalent and extensible."
+| Tab | What it shows | What it proves |
+|-----|--------------|----------------|
+| 1 Live System | Customer onboarding running in-process | The source system exists and works |
+| 2 Artifacts | BRD, schemas, user stories, job config, ETL code | These are the raw inputs to reverse engineering |
+| 3 Spec | Forensic reverse-engineering output | Contradictions surface automatically with provenance |
+| 4 Regenerated | Schema + ETL rebuilt from spec alone | The spec is sufficient — original code not consulted |
+| 5 Proof | Side-by-side code diff + equivalence check | Different code, identical business outputs |
+| 6 New Feature | Avg-days-to-approval added from spec as launchpad | The spec enables new work, not just retrospective analysis |
+| 7 Production Tickets | 7 WBB ServiceNow incidents | Production knowledge connects back to the spec |
+| 8 Enriched Spec | Spec + operational history | One document serves delivery and L3 support |
+| 9 FAQ | Generated from enriched spec | Knowledge made accessible without reading the spec |
+| 10 L3 Chatbot | Embedded Claude chatbot | Knowledge made interactive — bounded by the spec |
 
 ---
 
 ## Prerequisites
 
-**Machine requirements:** Windows 11 (corporate or personal)
-
-**Software — install once before the session:**
-
-### 1. WSL2 (Windows Subsystem for Linux 2)
-Open PowerShell as Administrator and run:
-```powershell
-wsl --install
-```
-Reboot when prompted. This is required by Rancher Desktop.
-
-### 2. Rancher Desktop
-Download from **rancherdesktop.io** (free, open source, Apache 2.0 licence).
-
-During first launch you will see a welcome screen. Set **Container Engine** to **dockerd (moby)** — not containerd. Everything else can remain as default.
-
-After Rancher Desktop finishes initialising (watch the progress bar at the bottom of the window), open a new PowerShell window and confirm:
-```powershell
-docker version
-docker compose version
-```
-Both should return version information without errors.
-
-### Corporate network note (CGI / TD networks)
-SSL inspection proxies on corporate networks intercept PyPI traffic. All Dockerfiles in this repository already include `--trusted-host pypi.org --trusted-host files.pythonhosted.org` on every pip install command. If you see SSL certificate errors during the first build, this flag is the fix. If it persists, contact your network team.
+- Python 3.9+
+- An Anthropic API key (for Tabs 3, 4, and 10 — live generation and chatbot)
 
 ---
 
-## First-time setup (run once)
+## Setup
 
-From the `wbb-workshop` directory in PowerShell:
+```bash
+# 1. Clone the repo
+git clone https://github.com/CGIDCSFred/wbb-workshop.git
+cd wbb-workshop
 
-```powershell
-# Step 1 — Start the databases and dashboard
-# On first run this builds all Docker images (~3 minutes depending on network)
-docker compose up source-db warehouse-db regen-warehouse-db dashboard -d
+# 2. Install dependencies
+pip install streamlit pandas anthropic
 
-# Step 2 — Wait ~15 seconds for PostgreSQL to initialise, then confirm:
-docker compose ps
-# All three database containers should show "healthy"
+# 3. Add your Anthropic API key
+# Create .streamlit/secrets.toml with:
+#   ANTHROPIC_API_KEY = "sk-ant-your-key-here"
 
-# Step 3 — Seed 30 days of historical onboarding data
-docker compose run --rm generator python generate.py seed 30
-
-# Step 4 — Start the live onboarding stream
-docker compose up generator -d
-
-# Step 5 — Open the dashboard
-# http://localhost:8080
+# 4. Run the app
+python -m streamlit run streamlit_app.py
 ```
 
-The dashboard should show the live feed populating on the left side. The right side (warehouse panels) will be empty until you press **⚡ Run ETL** in the browser.
+Open **http://localhost:8501** in your browser.
 
----
-
-## The dashboard
-
-Open **http://localhost:8080** and leave it visible on the projector throughout the session.
-
-The dashboard has three sections:
-
-### Top section — SOURCE DB (Operational, live)
-Pulls from the WBB operational database. Refreshes every 5 seconds.
-- **Live Application Feed** — new customer applications appearing in real time, with company name, segment, size, and outcome (SUBMITTED → IN_REVIEW → APPROVED / DECLINED)
-- **Application Funnel** — live counts at each stage of the onboarding pipeline
-
-### Middle section — ANALYTICS WAREHOUSE (After ETL)
-Pulls from the WBBAW analytics warehouse. Only updates when you press ⚡ Run ETL.
-- **Weekly Onboarding Volume** — bar chart, last 8 weeks, submitted vs approved vs declined
-- **Approval Rate by Segment** — horizontal bars showing approval rate per business segment
-
-### Bottom section — PROOF
-The equivalence demonstration. Populated after you press ⚡ Run ETL.
-- **Equivalence Check** — the same query run against both the original and regenerated warehouses, compared row by row. Shows ✓ EQUIVALENT or ✗ DIFFERS.
-- **New Feature** — deploy `vw_avg_days_to_approval_by_segment` to both warehouses and compare results.
-
-### Header buttons
-| Button | What it does |
-|--------|-------------|
-| ⚡ Run ETL | Loads current source data into both the original and regenerated warehouses simultaneously |
-| ↺ Restart Demo | Clears all source data and both warehouses. Use this to reset to zero before a session. |
+The app seeds 30 days of synthetic onboarding data automatically on first run.
 
 ---
 
 ## Running the demo
 
-### Before the session starts
-```powershell
-# If the environment is already running from a previous session:
-.\demo\restart.ps1 full    # wipes all data and re-seeds from scratch
-# OR if continuing from where you left off:
-.\demo\restart.ps1         # restarts all services without wiping data
-```
+### Act 1 — The live system (Tabs 1–2, ~3 min)
 
-Then open **http://localhost:8080** and confirm the live feed is active.
+**Tab 1 — Live System**  
+Show the onboarding platform running. Click "Add New Application" to show it's live. Point at the KPIs.
 
-### Act 1 — Show the live system (~5 min)
+> *"This is the source system. Business banking customers applying for WBB products. The ETL pipeline reads from this database every night."*
 
-The dashboard is your main screen. Walk the audience through the two sides:
-- Left: operational database, updating live every few seconds
-- Right: currently empty — "this is what the analytics warehouse looks like before the ETL runs"
+**Tab 2 — Artifacts**  
+Flip through the six artifacts: BRD, source schema, ETL extract. These are the standard delivery outputs.
 
-Switch to VS Code and briefly show the artifacts:
-- `artifacts/brd_wbb_v1.1.md` — the Business Requirements Document (§2.3 exclusion rules, §5 transformation logic)
-- `artifacts/etl/wbbxtr.py` — the extract code
-- `artifacts/etl/wbbldr.py` — the load code
-
-The prompt to the audience: *"Looks reasonable. But does the code actually do what the BRD says? Let's find out."*
+> *"When we went to understand this system, here's what we had. Looks reasonable. But does the code actually do what the BRD says?"*
 
 ---
 
-### Act 2 — Reverse-engineering pass (~6 min)
+### Act 2 — Forensic reverse engineering (Tab 3, ~6 min)
 
-Open a **new Claude conversation** (claude.ai or Claude Code).
+**Tab 3 — Spec**  
+Click **Generate Spec Live**. Claude reads all eight artifacts and streams the forensic specification.
 
-Attach all eight artifact files from the `artifacts/` directory:
-```
-artifacts/brd_wbb_v1.1.md
-artifacts/source_schema.sql
-artifacts/target_schema.sql
-artifacts/user_stories_export.md
-artifacts/job_config.yaml
-artifacts/etl/wbbxtr.py
-artifacts/etl/wbbldr.py
-artifacts/etl/wbb_common.py
-```
+While it runs (~90 seconds):
 
-Open `prompts/01_reverse_engineering.md` and paste its contents as the prompt. Submit.
+> *"The prompt gives Claude five rules: provenance for every claim, discrepancies preserved not resolved, gaps named not filled, no invented details, prose throughout. These rules are what make the output a forensic specification rather than a summary."*
 
-**While Claude runs (~90 seconds), explain to the audience:**
-The prompt gives Claude five rules: provenance for every claim, discrepancies preserved not resolved, gaps named not filled, no invented details, prose throughout. These rules are what make the output a forensic specification rather than a summary.
+When it finishes, scroll to **Section 6 — Discrepancies Found**. Walk through each finding:
 
-When output appears, save it to `spec/wbbaw_spec_v1.md`.
+1. **Date column drift** — BRD §5 says count by approval date. ETL uses submission date. The reporting view is counting the wrong date.
+2. **Three-name field** — BRD: `business_segment`. Source: `business_category`. Warehouse: `segment`. Three names, one concept.
+3. **Done but not implemented** — WBB-AW-011 ("Capture decline reason") marked Done. Extract carries `decline_description` to staging. Load never writes it. Warehouse has no column. Found only by tracing data flow.
+4. **Orphaned reference** — `job_config.yaml` runs program `wbbaudit`. No `wbbaudit.py` exists. Pipeline fails at the audit step on every run.
 
-**Navigate to Section 6 — Discrepancies Found.** This is the centrepiece.
-
-Walk through each finding:
-
-1. **Date column drift** — BRD §5 says weekly volume should count by approval date. The ETL uses submission date as the primary date key. The `vw_weekly_onboarding_volume` view is counting the wrong date. The data to fix it exists on the fact table — the ETL was just never updated after `approved_dt` was added to the source schema.
-
-2. **Three-name field** — The BRD calls it `business_segment`. The source schema uses `business_category`. The warehouse uses `segment`. Three names, one concept. A future developer searching the codebase for `business_segment` will find nothing.
-
-3. **Done but not implemented** — User story WBB-AW-011 ("Capture decline reason") is marked Done with all acceptance criteria checked. The extract carries `decline_description` through to staging. The load step never writes it. The warehouse fact table has no such column. Story closed; feature not delivered. Discoverable only by tracing the data flow across three files.
-
-4. **Orphaned reference** — `job_config.yaml` step `audit` runs program `wbbaudit`. No `wbbaudit.py` exists anywhere in the codebase. The audit step would fail at runtime.
-
-*Four inconsistencies in a system built over five sprints by a small team. None visible from reading the BRD. They emerge from reading the code as evidence.*
+> *"Four inconsistencies in a system built over five sprints by a small team. None visible from reading the BRD. They emerge from reading the code as evidence."*
 
 ---
 
-### Act 3 — Regeneration from spec alone (~5 min)
+### Act 3 — Regeneration from spec alone (Tab 4, ~5 min)
 
-Open a **fresh Claude conversation** — no memory of the artifacts.
+**Tab 4 — Regenerated**  
+Click **Regenerate from Spec**. The original artifacts are not consulted — only the spec is sent to Claude.
 
-Attach **only** `spec/wbbaw_spec_v1.md`. Nothing else.
+While it runs:
 
-Open `prompts/02_regeneration.md` and paste its contents as the prompt. Submit.
+> *"The regeneration claim is only honest if the regenerator has seen nothing but the spec. If you look at the original ETL code, the claim collapses. The spec has to be sufficient on its own."*
 
-**While Claude runs (~2 min), explain:**
-The regeneration claim is only honest if the regenerator has seen nothing but the spec. If you look at the original ETL code during regeneration, the claim collapses. The spec has to be sufficient on its own.
-
-When output appears, save the files to `regenerated/`.
-
-Then press **⚡ Run ETL** in the dashboard. Watch the middle section populate. The PROOF section at the bottom will now show the equivalence check.
-
-**Point to the PROOF section:** Both warehouses — the original and the regenerated — show the same weekly counts for every week. ✓ EQUIVALENT.
+Show the output. The code looks different from the original — different variable names, different key formula. That's expected.
 
 ---
 
-### Act 4 — New feature from spec alone (~5 min)
+### Act 4 — The proof (Tab 5, ~4 min)
 
-Open another **fresh Claude conversation**. Attach only `spec/wbbaw_spec_v1.md`.
+**Tab 5 — Proof**  
+Click **Compare**. Both ETLs run against the same source data. The equivalence check runs automatically.
 
-Open `prompts/03_new_report.md` and paste its contents as the prompt. Submit.
+Point at the two charts — identical weekly volumes. Point at the green badge: **EQUIVALENT**.
 
-The business question: *"Average days from application submission to approval, broken down by business segment."*
+Scroll down to the side-by-side code view.
 
-Claude will check whether the data is already in the warehouse (it is — `days_to_decision` is on `fact_application`, `segment` is on `dim_customer`), then produce a `CREATE VIEW` statement.
+> *"The code looks different. The outputs are identical. This is what we mean when we say the spec is canonical."*
 
-Press **Deploy New Feature** in the dashboard PROOF section. Both warehouses get the new view. The panel shows both returning the same results by segment.
+Deliver the governance point:
 
-*From business question to running report, without a developer touching the original ETL code. The spec did the work.*
+> *"Run this quarterly. Every time someone changes the production system, regenerate from the spec and click Compare. If it passes, the spec is still valid. If it fails, you have a documented drift problem — not a mystery."*
+
+---
+
+### Act 5 — New feature from spec (Tab 6, ~3 min)
+
+**Tab 6 — New Feature**  
+Show the feature document (Step 1: feasibility check). All data elements are already in the warehouse. No schema change needed. Click **Live Report** to show the query running.
+
+> *"The spec told us what was already there. We didn't have to read the code. We wrote the view against the spec's documented column names."*
+
+---
+
+### Act 6 — Production knowledge (Tabs 7–10, ~5 min)
+
+**Tab 7 — Production Tickets**  
+Show the seven incidents. Point out that four link directly to the seeded discrepancies — D1, D2, D3, D4.
+
+> *"The spec predicted these tickets before they were raised."*
+
+**Tab 8 — Enriched Spec**  
+Show Section 8 — operational history joined to delivery knowledge in one document.
+
+**Tab 9 — FAQ**  
+Show the decline_description and column naming entries.
+
+**Tab 10 — L3 Chatbot**  
+Type: `The nightly job fails at the audit step — wbbaudit exits with program not found`  
+→ **KNOWN PATTERN**, cites §8.2, gives resolution steps.
+
+Type: `I'm trying to query fact_application for decline_description but the column doesn't exist`  
+→ **KNOWN GAP**, cites §6 D3 and DEF-WBB-0048.
+
+Type: `We're seeing a new error code PIIMASK-403 in the extract logs`  
+→ **UNKNOWN — ESCALATE**
+
+> *"The chatbot is bounded by the spec. It won't invent answers. The quality of the answers is determined by the quality of Section 8 — and Section 8 was written from evidence, not memory."*
 
 ---
 
 ## Fallback — if live generation fails
 
-Pre-generated outputs are in `demo/fallback/`. If Claude takes too long or produces poor output during any act, copy the relevant fallback file to the expected location before the act begins.
+Pre-generated outputs are in `demo/fallback/`. If Tab 3 or Tab 4 generation is slow or fails, the tabs automatically show the fallback files — no action needed.
 
-| Act | Fallback file | Copy to |
-|-----|--------------|---------|
-| Act 2 | `demo/fallback/wbbaw_spec_v1.md` | `spec/wbbaw_spec_v1.md` |
-| Act 3 | `demo/fallback/regenerated/` (entire directory) | `regenerated/` |
-| Act 4 | `demo/fallback/new_report.md` | show in editor; paste the SQL into the warehouse |
-
----
-
-## Resetting between sessions
-
-```powershell
-# Restart everything, keep all data
-.\demo\restart.ps1
-
-# Restart dashboard only (if browser goes blank)
-.\demo\restart.ps1 dashboard
-
-# Restart generator only (if live feed stops)
-.\demo\restart.ps1 generator
-
-# Full wipe and re-seed (before a fresh demo session)
-.\demo\restart.ps1 full
-```
+| Tab | Fallback location |
+|-----|------------------|
+| 3 Spec | `demo/fallback/wbbaw_spec_v1.md` |
+| 4 Regenerated | `demo/fallback/regenerated/` |
+| 6 New Feature | `demo/fallback/new_report.md` |
+| 8 Enriched Spec | `demo/fallback/wbbaw_spec_section8.md` |
+| 9 FAQ | `demo/fallback/wbbaw_faq.md` |
 
 ---
 
 ## The four seeded inconsistencies
 
-These are deliberately planted and must not be fixed. They are the centrepiece of Act 2.
+These are deliberately planted. Do not fix them — they are the centrepiece of Act 2.
 
-1. **Date column drift** — BRD §5 specifies that weekly volume counts by approval date. The ETL uses `submitted_dt` as the primary date key (`submitted_date_key` on `fact_application`). `vw_weekly_onboarding_volume` counts by submission date, not approval date.
+1. **Date column drift** — BRD §5 specifies that weekly volume counts by approval date. The ETL uses `submitted_dt` as the primary date key. `vw_weekly_onboarding_volume` counts by submission date, not approval date.
 
 2. **Three-name field** — BRD: `business_segment`. Source schema: `business_category`. Warehouse: `segment`. Mapped correctly in the ETL, never reconciled in the BRD.
 
 3. **Done but not implemented** — WBB-AW-011 ("Capture decline reason") is marked Done. The extract carries `decline_description` through staging. `wbbldr.py` never writes it. `fact_application` has no such column. No comment marks the absence — must be found by data flow tracing.
 
-4. **Orphaned reference** — `job_config.yaml` step `audit` runs `wbbaudit`. No `wbbaudit.py` exists.
+4. **Orphaned reference** — `job_config.yaml` step `audit` runs `wbbaudit`. No `wbbaudit.py` exists anywhere in the codebase.
 
 ---
 
@@ -262,26 +192,29 @@ These are deliberately planted and must not be fixed. They are the centrepiece o
 
 | Path | What it is |
 |------|-----------|
-| `docker-compose.yml` | All services: source-db, warehouse-db, regen-warehouse-db, dashboard, generator, etl, regen-etl |
-| `artifacts/brd_wbb_v1.1.md` | Business Requirements Document, v1.1 |
+| `streamlit_app.py` | The 10-tab demo application |
+| `requirements_streamlit.txt` | Python dependencies (`streamlit`, `pandas`, `anthropic`) |
+| `.streamlit/config.toml` | Streamlit theme (TD blue) |
+| `.streamlit/secrets.toml` | API key — **not committed to git** |
+| `artifacts/brd_wbb_v1.1.md` | Business Requirements Document v1.1 |
 | `artifacts/source_schema.sql` | WBB operational database DDL |
-| `artifacts/target_schema.sql` | WBBAW warehouse DDL (includes dim_date seed) |
+| `artifacts/target_schema.sql` | WBBAW warehouse DDL |
 | `artifacts/user_stories_export.md` | User stories with acceptance criteria and status |
-| `artifacts/job_config.yaml` | Nightly ETL job configuration (contains orphaned `wbbaudit` reference) |
-| `artifacts/etl/wbbxtr.py` | Extract step — reads source, applies exclusions, writes staging file |
-| `artifacts/etl/wbbldr.py` | Load step — upserts dimensions, loads fact_application |
+| `artifacts/job_config.yaml` | Nightly ETL job configuration |
+| `artifacts/etl/wbbxtr.py` | Extract step |
+| `artifacts/etl/wbbldr.py` | Load step |
 | `artifacts/etl/wbb_common.py` | Shared utilities |
-| `generator/generate.py` | Onboarding simulator: `seed` populates history, `demo` runs live pipeline |
-| `dashboard/main.py` | FastAPI dashboard backend |
-| `dashboard/static/index.html` | Dashboard UI |
-| `prompts/01_reverse_engineering.md` | Reverse-engineering prompt — use in Act 2 |
-| `prompts/02_regeneration.md` | Regeneration prompt — use in Act 3 |
-| `prompts/03_new_report.md` | New feature prompt — use in Act 4 |
-| `spec/` | Act 2 output saved here |
-| `regenerated/` | Act 3 output saved here |
-| `demo/storyboard.md` | Full presenter script with timing and talk tracks |
-| `demo/restart.ps1` | Restart helper script |
-| `demo/fallback/` | Pre-generated outputs for all three acts |
+| `artifacts/servicenow_tickets_wbb.json` | 7 WBB-domain ServiceNow incidents |
+| `prompts/01_reverse_engineering.md` | Reverse-engineering prompt |
+| `prompts/02_regeneration.md` | Regeneration prompt |
+| `prompts/03_new_report.md` | New feature prompt |
+| `demo/fallback/wbbaw_spec_v1.md` | Pre-built forensic spec (fallback for Tab 3) |
+| `demo/fallback/regenerated/` | Pre-built regenerated artifacts (fallback for Tab 4) |
+| `demo/fallback/new_report.md` | Pre-built new feature document (fallback for Tab 6) |
+| `demo/fallback/wbbaw_spec_section8.md` | Operational history section (Tab 8) |
+| `demo/fallback/wbbaw_faq.md` | FAQ generated from enriched spec (Tab 9) |
+| `spec/` | Live spec output saved here (Tab 3) |
+| `regenerated/` | Live regeneration output saved here (Tab 4) |
 
 ---
 
@@ -294,9 +227,8 @@ To apply this to a real TD programme stream:
 2. Use `prompts/01_reverse_engineering.md` as the template (the five rules do not change; the section structure may need adjusting for different system types)
 3. The spec that comes out is auditable in a way an authored spec is not — every claim has a source, every contradiction is preserved
 4. Use that spec to onboard new team members, validate the system before cutover, or extend the system safely
-
-For migration jobs specifically, the seven-section structure in the reverse-engineering prompt (Source System, Target System, Transformation Rules, Operational Behaviour, Discrepancies, Open Questions) maps directly onto what an L3 engineer needs to understand a batch migration pipeline.
+5. Enrich the spec with production ticket history to build an L3 support knowledge base
 
 ---
 
-*Prepared by Frederick Ferguson, CGI — May 2026*
+*Prepared by Frederick Ferguson, CGI — June 2026*
