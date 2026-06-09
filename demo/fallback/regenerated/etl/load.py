@@ -64,7 +64,7 @@ def customer_key(customer_id: int) -> int:
     return abs(hash(("cust", customer_id))) & _MASK63
 
 
-def product_key(product_id: int | None) -> int:
+def product_key(product_id: "Optional[int]") -> int:
     """63-bit surrogate key for a product; returns -1 for NULL product_id."""
     if product_id is None:
         return -1
@@ -80,7 +80,7 @@ def application_key(application_id: int) -> int:
 # Date key helper  (spec §4.3)
 # ---------------------------------------------------------------------------
 
-def date_key(dt_value) -> int | None:
+def date_key(dt_value) -> "Optional[int]":
     """
     Convert a submitted_dt / approved_dt value to a YYYYMMDD integer date key.
     Accepts datetime objects or ISO-format strings. Returns None for falsy input.
@@ -195,7 +195,7 @@ ON CONFLICT (application_id) DO UPDATE SET
 """
 
 
-def _days_to_decision(r: dict) -> int | None:
+def _days_to_decision(r: dict) -> "Optional[int]":
     """
     Calendar days between reviewed_dt and submitted_dt.
     Returns None if reviewed_dt is absent.

@@ -20,3 +20,9 @@ __pycache__/
 
 # Demo output directories — kept as empty placeholders
 # spec/ and regenerated/ are populated live during the demo
+
+# SQLite database (generated at runtime)
+*.db
+
+# Streamlit secrets (contains API keys)
+.streamlit/secrets.toml

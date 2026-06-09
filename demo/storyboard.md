@@ -6,7 +6,7 @@ Run once in a terminal and leave running:
 
 ```powershell
 # Start everything (first run: builds images, inits schemas, seeds dim_date)
-docker compose up source-db warehouse-db dashboard -d
+docker compose up source-db warehouse-db regen-warehouse-db dashboard -d
 
 # Seed 30 days of historical data (once only — skip if already done)
 docker compose run --rm generator python generate.py seed 30

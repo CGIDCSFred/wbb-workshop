@@ -84,7 +84,7 @@ CREATE TABLE wbbaw.dim_customer (
 -- wbbaw.dim_product
 -- One row per banking product.
 -- NOT refreshed by the nightly ETL; wbbldr.py contains no upsert for this
--- dimension. Seeded at DDL time with seven reference products.
+-- dimension. Only the Unknown sentinel is seeded at DDL time.
 --
 -- product_key = -1 is the "Unknown Product" sentinel used for defaulting
 -- unresolvable product references (per BRD §5). NOTE: the ETL does not
@@ -104,11 +104,8 @@ CREATE TABLE wbbaw.dim_product (
 INSERT INTO wbbaw.dim_product (product_key, product_id, product_code, product_name, product_type, is_active)
 VALUES (-1, NULL, NULL, 'Unknown Product', NULL, NULL);
 
--- Reference products (product_key derived from abs(hash(('prod', product_id))) & ((1<<63)-1);
--- seeded here with placeholder keys — a separate load process owns the real values)
--- The seven products below are seeded via the separate product-dimension load
--- (not the nightly ETL). The source-of-truth product_key values are those
--- produced by the surrogate key formula in the ETL.
+-- Product reference data is loaded separately; the nightly ETL does not populate
+-- this dimension. The Unknown sentinel above is sufficient for the demo.
 
 -- ---------------------------------------------------------------------------
 -- wbbaw.fact_application

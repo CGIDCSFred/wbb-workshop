@@ -2,7 +2,7 @@
 
 ## How to use this prompt
 
-Open a fresh Claude context. Attach the following five artifacts:
+Open a fresh Claude context. Attach the following eight artifacts:
 
 - `artifacts/brd_wbb_v1.1.md`
 - `artifacts/source_schema.sql`

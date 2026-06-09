@@ -86,7 +86,7 @@ def staging_path() -> str:
     return os.environ.get("STAGE_PATH", "/tmp/wbbaw_stage.jsonl")
 
 
-def write_staging(records: list[dict[str, Any]], path: str | None = None) -> int:
+def write_staging(records: "list[dict[str, Any]]", path: "Optional[str]" = None) -> int:
     """
     Write a list of record dicts to the staging JSONL file.
     Each record is serialised as a single JSON line.
@@ -99,7 +99,7 @@ def write_staging(records: list[dict[str, Any]], path: str | None = None) -> int
     return len(records)
 
 
-def read_staging(path: str | None = None) -> Generator[dict[str, Any], None, None]:
+def read_staging(path: "Optional[str]" = None) -> "Generator[dict[str, Any], None, None]":
     """
     Yield record dicts from the staging JSONL file one line at a time.
     Empty lines are skipped.
