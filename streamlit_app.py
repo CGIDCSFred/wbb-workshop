@@ -194,7 +194,13 @@ def _iso_week(dt_str: str) -> str:
 
 
 def _surr_key_orig(prefix: str, id_: int) -> int:
-    return abs(hash((prefix, id_))) & ((1 << 63) - 1)
+    # Deterministic across processes. (Previously used Python's built-in hash(),
+    # which is per-process randomized via PYTHONHASHSEED — that silently broke the
+    # fact->dim join after any app restart, since the dim upsert does not refresh
+    # customer_key.) Distinct formula from the regen ETL so key VALUES still differ,
+    # demonstrating independently-written code with the same uniqueness guarantee.
+    raw = int(hashlib.sha256(f"orig|{prefix}|{id_}".encode()).hexdigest(), 16)
+    return raw % (2 ** 63)
 
 
 def _surr_key_regen(prefix: str, id_: int) -> int:
@@ -497,20 +503,36 @@ def _get_client():
     return _anthropic_module.Anthropic(api_key=key)
 
 
-def _stream_to_placeholder(client, user_message: str, output_path: Path, label: str) -> str:
-    """Stream a Claude response, update a Streamlit placeholder, save to file."""
+def _stream_to_placeholder(client, user_message: str, output_path: Path, label: str) -> Optional[str]:
+    """Stream a Claude response, update a Streamlit placeholder, save to file.
+
+    On a network failure mid-stream (e.g. a corporate proxy dropping a
+    long-lived connection), degrade gracefully: show a friendly notice and
+    return None so the caller leaves the pre-built fallback in place instead
+    of surfacing a traceback. Only writes the output file on a clean finish,
+    so a partial/failed run never overwrites a good result.
+    """
     output_path.parent.mkdir(parents=True, exist_ok=True)
     st.subheader(label)
     placeholder = st.empty()
     full_text   = ""
-    with client.messages.stream(
-        model      = "claude-sonnet-4-6",
-        max_tokens = 8000,
-        messages   = [{"role": "user", "content": user_message}],
-    ) as stream:
-        for chunk in stream.text_stream:
-            full_text += chunk
-            placeholder.markdown(full_text + " ▌")
+    try:
+        with client.messages.stream(
+            model      = "claude-sonnet-4-6",
+            max_tokens = 16000,
+            messages   = [{"role": "user", "content": user_message}],
+        ) as stream:
+            for chunk in stream.text_stream:
+                full_text += chunk
+                placeholder.markdown(full_text + " ▌")
+    except Exception:
+        placeholder.empty()
+        st.warning(
+            "Live generation was interrupted by a network issue. "
+            "Showing the pre-built version instead — the content is equivalent.",
+            icon="⚠️",
+        )
+        return None
     placeholder.markdown(full_text)
     output_path.write_text(full_text, encoding="utf-8")
     st.success(f"Saved to {output_path.relative_to(BASE)}")
@@ -677,17 +699,11 @@ def tab_spec() -> None:
             st.info("Showing pre-built fallback spec. Click to generate live.", icon="📋")
     with col_btn:
         client = _get_client()
+        generate = False
         if client is None:
             st.caption("Set ANTHROPIC_API_KEY to enable.")
         else:
-            if st.button("Generate Spec Live", type="primary", use_container_width=True):
-                _stream_to_placeholder(
-                    client,
-                    _build_spec_prompt(),
-                    live_spec,
-                    "Generating forensic specification...",
-                )
-                st.rerun()
+            generate = st.button("Generate Spec Live", type="primary", use_container_width=True)
 
     st.info(
         "**4 discrepancies found.** "
@@ -698,8 +714,31 @@ def tab_spec() -> None:
         icon="🔍",
     )
 
-    content = _read_file(spec_path)
-    st.markdown(content)
+    if generate and client is not None:
+        # Capture the existing spec BEFORE the live run overwrites it, so the
+        # reference and the fresh generation can sit side by side (equal cells).
+        reference_text = _read_file(spec_path)
+        st.caption(
+            "**Left:** previously generated reference  ·  **Right:** fresh live generation.  "
+            "Expect only cosmetic wording differences — the findings (D1–D4) and their "
+            "provenance citations are stable across runs."
+        )
+        col_ref, col_live = st.columns(2)
+        with col_ref:
+            with st.container(border=True):
+                st.subheader("Reference (pre-built)")
+                st.markdown(reference_text)
+        with col_live:
+            with st.container(border=True):
+                _stream_to_placeholder(
+                    client,
+                    _build_spec_prompt(),
+                    live_spec,
+                    "Live generation",
+                )
+        # No rerun: keep both panels on screen so variations can be pointed out.
+    else:
+        st.markdown(_read_file(spec_path))
 
 # ── Tab 4: Regenerated Artifacts ───────────────────────────────────────────────
 
@@ -724,24 +763,43 @@ def tab_regenerated() -> None:
             )
     with col_btn:
         client = _get_client()
+        regenerate = False
         if client is None:
             st.caption("Set ANTHROPIC_API_KEY to enable.")
         else:
-            if st.button("Regenerate from Spec", type="primary", use_container_width=True):
-                live_spec   = BASE / "spec" / "wbbaw_spec_live.md"
-                spec_path   = live_spec if live_spec.exists() else FALLBACK / "wbbaw_spec_v1.md"
-                spec_content = _read_file(spec_path)
+            regenerate = st.button("Regenerate from Spec", type="primary", use_container_width=True)
+
+    st.divider()
+
+    if regenerate and client is not None:
+        live_spec    = BASE / "spec" / "wbbaw_spec_live.md"
+        spec_path    = live_spec if live_spec.exists() else FALLBACK / "wbbaw_spec_v1.md"
+        spec_content = _read_file(spec_path)
+        # Capture any prior regeneration BEFORE this run overwrites it.
+        reference_text = _read_file(live_regen) if live_regen.exists() else None
+        st.caption(
+            "**Left:** previously regenerated reference  ·  **Right:** fresh regeneration from the spec alone.  "
+            "The code differs run to run — the claim is semantic equivalence, not identical text."
+        )
+        col_ref, col_live = st.columns(2)
+        with col_ref:
+            with st.container(border=True):
+                st.subheader("Reference (pre-built)")
+                if reference_text is not None:
+                    st.markdown(reference_text)
+                else:
+                    st.info("No prior regeneration on file.")
+        with col_live:
+            with st.container(border=True):
                 _stream_to_placeholder(
                     client,
                     _build_regen_prompt(spec_content),
                     live_regen,
-                    "Regenerating from spec alone...",
+                    "Live regeneration",
                 )
-                st.rerun()
-
-    st.divider()
-
-    if live_regen.exists():
+        # No rerun: keep both panels on screen for comparison.
+        st.divider()
+    elif live_regen.exists():
         st.subheader("Live Regeneration Output")
         st.markdown(_read_file(live_regen))
         st.divider()
@@ -1161,6 +1219,7 @@ ENRICHED WBBAW SYSTEM SPECIFICATION
             st.markdown(user_input)
 
         with st.chat_message("assistant"):
+            reply = None
             with st.spinner("Consulting spec..."):
                 try:
                     client   = _anthropic_module.Anthropic(api_key=api_key)
@@ -1174,11 +1233,20 @@ ENRICHED WBBAW SYSTEM SPECIFICATION
                         ],
                     )
                     reply = response.content[0].text
-                except Exception as exc:
-                    reply = f"[API error: {exc}]"
+                except Exception:
+                    reply = None
 
-            st.markdown(reply)
-        st.session_state.chat_messages.append({"role": "assistant", "content": reply})
+            if reply is not None:
+                st.markdown(reply)
+            else:
+                st.warning(
+                    "Couldn't reach the support service just now (network issue). "
+                    "Please try that ticket again in a moment.",
+                    icon="⚠️",
+                )
+        # Only persist a successful turn — never store an error in chat history
+        if reply is not None:
+            st.session_state.chat_messages.append({"role": "assistant", "content": reply})
 
     if st.session_state.chat_messages:
         if st.button("Clear chat"):

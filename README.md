@@ -16,8 +16,8 @@ The demo runs as a single Streamlit application — no Docker required.
 |-----|--------------|----------------|
 | 1 Live System | Customer onboarding running in-process | The source system exists and works |
 | 2 Artifacts | BRD, schemas, user stories, job config, ETL code | These are the raw inputs to reverse engineering |
-| 3 Spec | Forensic reverse-engineering output | Contradictions surface automatically with provenance |
-| 4 Regenerated | Schema + ETL rebuilt from spec alone | The spec is sufficient — original code not consulted |
+| 3 Spec | Forensic reverse-engineering output — live generation streams side-by-side with a reference run | Contradictions surface automatically with provenance; findings are stable run-to-run |
+| 4 Regenerated | Schema + ETL rebuilt from spec alone — live generation streams side-by-side with a reference run | The spec is sufficient — original code not consulted |
 | 5 Proof | Side-by-side code diff + equivalence check | Different code, identical business outputs |
 | 6 New Feature | Avg-days-to-approval added from spec as launchpad | The spec enables new work, not just retrospective analysis |
 | 7 Production Tickets | 7 WBB ServiceNow incidents | Production knowledge connects back to the spec |
@@ -42,7 +42,7 @@ git clone https://github.com/CGIDCSFred/wbb-workshop.git
 cd wbb-workshop
 
 # 2. Install dependencies
-pip install streamlit pandas anthropic
+pip install -r requirements_streamlit.txt
 
 # 3. Add your Anthropic API key
 # Create .streamlit/secrets.toml with:
@@ -52,9 +52,20 @@ pip install streamlit pandas anthropic
 python -m streamlit run streamlit_app.py
 ```
 
-Open **http://localhost:8501** in your browser.
+Open **http://localhost:8501** in your browser. Use the `python -m streamlit …`
+form (not a bare `streamlit run`) so the app uses the same interpreter the
+dependencies were installed into.
 
 The app seeds 30 days of synthetic onboarding data automatically on first run.
+
+### Corporate networks (TLS inspection)
+
+On a machine behind a TLS-inspecting proxy (e.g. Zscaler), the Anthropic SDK can
+fail with `CERTIFICATE_VERIFY_FAILED` because Python's bundled CA set doesn't
+include the corporate root cert. `requirements_streamlit.txt` includes
+`pip-system-certs`, which makes Python trust the OS certificate store and
+resolves this. If you still hit it, confirm the proxy client is healthy and its
+root cert is installed in the OS trust store.
 
 ---
 
@@ -162,7 +173,7 @@ Type: `We're seeing a new error code PIIMASK-403 in the extract logs`
 
 ## Fallback — if live generation fails
 
-Pre-generated outputs are in `demo/fallback/`. If Tab 3 or Tab 4 generation is slow or fails, the tabs automatically show the fallback files — no action needed.
+Pre-generated outputs are in `demo/fallback/`. If Tab 3 or Tab 4 generation is slow or fails, the tabs automatically show the fallback files — no action needed. A mid-stream network drop (e.g. a flaky corporate proxy) is caught: the tab shows a brief notice and leaves the pre-built version in place rather than surfacing an error. The Tab 10 chatbot likewise degrades to a friendly "try again" message instead of a traceback.
 
 | Tab | Fallback location |
 |-----|------------------|

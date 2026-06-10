@@ -10,19 +10,39 @@ The fictional domain is a web banking onboarding platform (WBB) where small
 and medium businesses apply for business banking products. The system is
 deliberately simple and self-contained.
 
+The demo now runs as a **single Streamlit application** (`streamlit_app.py`) —
+no Docker required. This is the canonical demo path. See "Running the demo"
+below.
+
 ## What's here
 
+- `streamlit_app.py` — the 10-tab Streamlit demo application; the entry point
+  for the workshop. Runs entirely in-process against a local SQLite file
+  (`wbb_demo.db`), which it seeds with 30 days of synthetic onboarding data on
+  first run.
+- `requirements_streamlit.txt` — Python deps for the app (`streamlit`,
+  `pandas`, `anthropic`)
+- `.streamlit/` — Streamlit config (TD-blue theme) and `secrets.toml`
+  (Anthropic API key; not committed)
 - `artifacts/` — the complete artifact bundle: BRD, source schema, warehouse
-  schema, user stories, job config, and working ETL code
-- `generator/` — a Python script that simulates live customer onboarding for
-  the demo
-- `scripts/` — supporting SQL (dim_date seed)
+  schema, user stories, job config, working ETL code, and the WBB ServiceNow
+  incident set (`servicenow_tickets_wbb.json`)
 - `prompts/` — the three workshop prompts (reverse engineering, regeneration,
   new report)
-- `demo/storyboard.md` — the full demo script with timing and talk tracks
-- `spec/` — populated during the live demo (reverse-engineering output)
-- `regenerated/` — populated during the live demo (regeneration output)
-- `docker-compose.yml` — runs everything
+- `demo/fallback/` — pre-generated outputs used when live generation is slow or
+  fails: the forensic spec (`wbbaw_spec_v1.md`), regenerated artifacts
+  (`regenerated/`), the new-feature doc (`new_report.md`), the enriched-spec
+  Section 8 (`wbbaw_spec_section8.md`), and the FAQ (`wbbaw_faq.md`)
+- `spec/` — populated during the live demo (reverse-engineering output, Tab 3)
+- `regenerated/` — populated during the live demo (regeneration output, Tab 4)
+- `README.md` — the canonical run guide for the Streamlit demo
+
+**Legacy (superseded — do not use for the workshop):** `docker-compose.yml`,
+`generator/`, `dashboard/`, `scripts/`, the ETL `Dockerfile`s, and the
+docker-based instructions in `demo/storyboard.md`, `SETUP.md`, and
+`NEXT_STEPS.md` describe the earlier docker-compose stack. The Streamlit app
+has replaced this path. Treat these as historical unless Frederick says
+otherwise; they are out of step with the current demo.
 
 ## The four seeded inconsistencies
 
@@ -51,29 +71,56 @@ are the centrepiece of the workshop.
 4. **Orphaned reference** — `job_config.yaml` step `audit` runs program
    `wbbaudit`. No `wbbaudit.py` exists in the codebase.
 
+`artifacts/servicenow_tickets_wbb.json` is also calibrated: four of its seven
+incidents are pinned to the four discrepancies above (D1–D4). It is part of the
+artifact bundle and must not be modified — treat it like the other artifacts.
+
 ## Running the demo environment
 
 ```bash
-# Start databases
-docker compose up source-db warehouse-db
+# Install deps
+pip install -r requirements_streamlit.txt   # streamlit, pandas, anthropic
 
-# Seed historical data (once)
-docker compose run --rm generator python generate.py seed 30
+# Provide the Anthropic API key (not committed)
+# .streamlit/secrets.toml:
+#   ANTHROPIC_API_KEY = "sk-ant-..."
 
-# Start live onboarding stream
-docker compose up generator
-
-# Run the ETL (manually, during the demo)
-docker compose run --rm --profile etl etl
+# Run the app
+python -m streamlit run streamlit_app.py     # http://localhost:8501
 ```
+
+On first run the app seeds 30 days of synthetic onboarding data into
+`wbb_demo.db` automatically.
+
+**Live-generation dependency / guardrails:**
+- Tabs 3 (Spec), 4 (Regenerated), and 10 (L3 Chatbot) call the Anthropic API
+  live and need a valid `ANTHROPIC_API_KEY`.
+- Tabs 3, 4, 6, 8, and 9 fall back to `demo/fallback/` automatically if live
+  generation is slow or fails.
+- **Tab 10 (chatbot) has no fallback.** If the API key or network is
+  unavailable, the chatbot will not work — this is the one unprotected point in
+  the run. Confirm the key works before the session.
 
 ## What Frederick will do during the workshop
 
-1. Show the live system (generator + psql queries)
-2. Run prompt 01 (reverse engineering) with all eight artifacts
-3. Walk through the spec's Section 6 (discrepancies)
-4. Run prompt 02 (regeneration) with spec only
-5. Run prompt 03 (new report) with spec only
-6. Show the new report running against live data
+The demo runs as six acts across the app's ten tabs (full talk track in
+`README.md`):
 
-See `demo/storyboard.md` for the full script.
+1. **Act 1 — Live system (Tabs 1–2).** Show onboarding running in-process and
+   flip through the six artifacts.
+2. **Act 2 — Reverse engineering (Tab 3).** Generate the forensic spec live
+   from all eight artifacts; walk Section 6 (the four discrepancies).
+3. **Act 3 — Regeneration (Tab 4).** Regenerate schema + ETL from the spec
+   alone — original artifacts not consulted.
+4. **Act 4 — The proof (Tab 5).** Run both ETLs against the same data; show the
+   equivalence check and the side-by-side diff.
+5. **Act 5 — New feature (Tab 6).** Add avg-days-to-approval from the spec; show
+   the live report.
+6. **Act 6 — Production knowledge (Tabs 7–10).** The L3-support arc and the
+   conceptual expansion of the demo: 7 ServiceNow incidents (4 mapped to
+   D1–D4), the enriched spec (Section 8 fuses operational history into the
+   spec), an FAQ generated from it, and a spec-bounded L3 chatbot that answers
+   KNOWN PATTERN / KNOWN GAP / UNKNOWN-ESCALATE.
+
+The same discipline still applies: do not consult the original artifacts during
+regeneration (Tab 4) — the spec must be sufficient on its own.
