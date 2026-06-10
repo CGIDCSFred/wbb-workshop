@@ -38,11 +38,11 @@ below.
 - `README.md` — the canonical run guide for the Streamlit demo
 
 **Legacy (superseded — do not use for the workshop):** `docker-compose.yml`,
-`generator/`, `dashboard/`, `scripts/`, the ETL `Dockerfile`s, and the
-docker-based instructions in `demo/storyboard.md`, `SETUP.md`, and
-`NEXT_STEPS.md` describe the earlier docker-compose stack. The Streamlit app
-has replaced this path. Treat these as historical unless Frederick says
-otherwise; they are out of step with the current demo.
+`generator/`, `dashboard/`, `scripts/`, and the ETL `Dockerfile`s are remnants
+of the earlier docker-compose stack. The Streamlit app has replaced that path;
+treat them as historical unless Frederick says otherwise. The docker-based
+`demo/storyboard.md`, `SETUP.md`, and `NEXT_STEPS.md` guides have been removed —
+`README.md` is the single source of truth for running the demo.
 
 ## The four seeded inconsistencies
 
