@@ -6,6 +6,35 @@
 
 ---
 
+## Overview
+
+A complete, runnable demonstration that a **forensic specification** — reverse-engineered from a system's own artifacts — is auditable, sufficient to regenerate the system, and durable enough to serve as an L3 support knowledge base. It runs as a single Streamlit app over a fictional web-banking onboarding platform (WBB) and its analytics warehouse (WBBAW), using no TD data or IP. The arc runs end to end: **live system → forensic spec → regeneration → proof of equivalence → new feature → production-support knowledge.**
+
+## Key Features
+
+- **Forensic reverse engineering** — generates a specification where every claim carries a provenance citation and contradictions are preserved, not smoothed away.
+- **Four planted discrepancies** — deliberately seeded across the artifacts; the method surfaces them automatically (the centrepiece of the demo).
+- **Regeneration from spec alone** — rebuilds schema + ETL from the spec with no access to the original code, then proves semantic equivalence.
+- **Equivalence proof** — runs both pipelines against the same data and shows identical business outputs (the governance mechanism for drift).
+- **Spec-driven extension** — adds a new analytical report straight from the spec.
+- **Spec-bounded L3 chatbot** — an embedded Claude assistant that answers only from the enriched spec, classifying tickets as KNOWN PATTERN / KNOWN GAP / UNKNOWN.
+- **Self-contained** — one Streamlit app over in-process SQLite; no Docker, auto-seeds its own data, and degrades gracefully to pre-built fallbacks if live generation fails.
+
+## Contents
+
+- [What this demonstrates](#what-this-demonstrates) — the ten tabs
+- [Prerequisites](#prerequisites) · [Setup](#setup)
+- [Architecture](#architecture) — how it works
+- [Running the demo](#running-the-demo) — the six acts, with talk track
+- [Fallback](#fallback--if-live-generation-fails)
+- [The four seeded inconsistencies](#the-four-seeded-inconsistencies)
+- [Key file map](#key-file-map)
+- [What this is (and isn't)](#what-this-is-and-isnt)
+- [Applying this to real TD work](#applying-this-to-real-td-work)
+- [Rebuilding this demo elsewhere](#rebuilding-this-demo-elsewhere) — see [`rebuild.md`](rebuild.md)
+
+---
+
 ## What this demonstrates
 
 A complete, working demonstration of spec-driven reverse engineering. Built around a fictional web banking onboarding platform (WBB) and its analytics warehouse (WBBAW), designed to echo the structure of real modernisation work without using any TD data or IP.
@@ -66,6 +95,37 @@ include the corporate root cert. `requirements_streamlit.txt` includes
 `pip-system-certs`, which makes Python trust the OS certificate store and
 resolves this. If you still hit it, confirm the proxy client is healthy and its
 root cert is installed in the OS trust store.
+
+---
+
+## Architecture
+
+The whole demo is one process: `streamlit_app.py` over a local SQLite database
+(`wbb_demo.db`). No services, no Docker.
+
+- **Source system.** On first run the app seeds ~30 days of synthetic onboarding
+  applications into `onboarding_applications` / `customers`. Tab 1 reads and
+  writes this live.
+- **Two ETL simulators.** `run_original_etl()` and `run_regen_etl()` are
+  hand-written SQLite stand-ins for the two pipelines. They read the *same*
+  source tables and load two separate warehouses (`wh_*` and `regen_*`). They
+  are deliberately written differently (different variable names, different
+  surrogate-key formula) to model independently-authored code — while producing
+  the same business outputs. This is what Tab 5 compares.
+- **Live generation.** Tabs 3, 4, and 10 call the Anthropic API (`claude-sonnet-4-6`).
+  Tab 3 sends `prompts/01_reverse_engineering.md` + the eight artifacts; Tab 4
+  sends `prompts/02_regeneration.md` + the spec alone; Tab 10 sends the enriched
+  spec as a bounded system prompt. Tabs 3/4 stream side-by-side (reference vs
+  fresh run); on a network drop they fall back to `demo/fallback/`.
+- **The proof.** Tab 5 runs both ETLs against the current source, then compares
+  weekly volume and approval counts. Identical outputs → the green **EQUIVALENT**
+  badge. This is the governance loop: regenerate, compare, and either confirm the
+  spec still holds or surface a documented drift.
+
+> **Note on layers:** the code in `artifacts/etl/` (`wbbxtr.py`, `wbbldr.py`,
+> `wbb_common.py`) is the *fictional original* the reverse-engineering reads — it
+> targets Postgres and is never executed. The ETL *simulators* that actually run
+> live for the proof are inside `streamlit_app.py`.
 
 ---
 
@@ -204,6 +264,7 @@ These are deliberately planted. Do not fix them — they are the centrepiece of 
 | Path | What it is |
 |------|-----------|
 | `streamlit_app.py` | The 10-tab demo application |
+| `rebuild.md` | Self-contained brief to reconstruct this demo in another environment (e.g. TD — no Docker, offline-first) |
 | `requirements_streamlit.txt` | Python dependencies (`streamlit`, `pandas`, `anthropic`) |
 | `.streamlit/config.toml` | Streamlit theme (TD blue) |
 | `.streamlit/secrets.toml` | API key — **not committed to git** |
@@ -229,16 +290,51 @@ These are deliberately planted. Do not fix them — they are the centrepiece of 
 
 ---
 
+## What this is (and isn't)
+
+Being clear about scope is part of the pitch — a forensic spec is credible
+precisely because it states what it does and doesn't know.
+
+**What it is**
+- A faithful demonstration of the *method*: forensic reverse engineering, regeneration, equivalence, and spec-as-knowledge-base.
+- Self-contained and reproducible on a single machine.
+- Honest about evidence — claims carry provenance; gaps are named, not filled.
+
+**What it isn't**
+- **Not a production system.** The WBB domain is fictional; the ETL simulators are SQLite stand-ins, not the artifact code (which targets Postgres and isn't run).
+- **Not a finished spec.** The generated spec is a *forensic draft for human review* — its open questions and discrepancies are meant to be resolved with the project team before it's used as a build brief.
+- **Not a universal equivalence proof.** Tab 5 proves equivalence for specific business queries (weekly volume, approval rate). A real engagement would expand the query set to the metrics that matter.
+- **Not deterministic prose.** Live generations vary run-to-run in wording; the *findings* are stable, the text is not.
+- **Dependent on the API for live tabs.** Tabs 3, 4, and 10 need network + an Anthropic key; everything else runs offline, and Tabs 3/4 fall back to pre-built output.
+
+---
+
 ## Applying this to real TD work
 
-The WBB domain is fictional. The method transfers directly.
+The WBB domain is fictional; the method transfers directly. A real programme stream follows the same arc:
 
-To apply this to a real TD programme stream:
-1. Gather the existing artifacts — BRD, user stories, schema DDL, ETL code, job config
-2. Use `prompts/01_reverse_engineering.md` as the template (the five rules do not change; the section structure may need adjusting for different system types)
-3. The spec that comes out is auditable in a way an authored spec is not — every claim has a source, every contradiction is preserved
-4. Use that spec to onboard new team members, validate the system before cutover, or extend the system safely
-5. Enrich the spec with production ticket history to build an L3 support knowledge base
+1. **Gather the artifacts.** Pull the existing BRD, user stories, schema DDL, ETL/job code, and config for the target system — whatever evidence exists, however incomplete.
+2. **Reverse-engineer the spec.** Run `prompts/01_reverse_engineering.md`. The five rules are fixed; adapt the section structure to the system type (e.g. a migration job needs a State Machine and an Identity Model section that an ETL spec doesn't).
+3. **Triage the findings.** Walk the spec's discrepancies and open questions with the project team. This is where the value lands — converting tacit knowledge and latent contradictions into a written, auditable record.
+4. **Validate before cutover.** Use the spec to regenerate and run an equivalence check against the live system on the metrics that matter — your drift gate.
+5. **Onboard and extend.** Hand the spec to new team members and use it as the brief for new work, instead of re-reading the code each time.
+6. **Stand up L3 support.** Enrich the spec with production ticket history and front it with a spec-bounded assistant, so operational knowledge stays tied to evidence.
+
+Run step 4 on a schedule (e.g. quarterly): a passing equivalence check confirms the spec still holds; a failing one is a *documented* drift, not a mystery.
+
+---
+
+## Rebuilding this demo elsewhere
+
+To reconstruct this demo in another environment — for example inside a corporate
+network with no Docker, restricted PyPI, TLS inspection, or no LLM API egress —
+see **[`rebuild.md`](rebuild.md)**. It is a self-contained reconstruction brief:
+hand it to a capable coding assistant and it can rebuild a semantically
+equivalent demo from scratch. It covers the environment constraints and
+adaptations (including an **offline-first** mode that needs no network), the data
+model, the four seeded inconsistencies, the prompts verbatim, the ETL
+simulators, all ten tabs, the hard-won implementation fixes, a build sequence,
+and an acceptance checklist.
 
 ---
 
