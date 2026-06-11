@@ -652,6 +652,38 @@ def tab_live_system() -> None:
 
 # ── Tab 2: Artifacts ───────────────────────────────────────────────────────────
 
+def _data_model_dot(kind: str) -> str:
+    """Graphviz DOT for an ER-style data model. Rendered client-side by
+    st.graphviz_chart — no graphviz package or system binary required.
+    Discrepancy fields are annotated inline (D1/D2/D3)."""
+    if kind == "source":
+        return """
+digraph G {
+  rankdir=LR; bgcolor="transparent";
+  node [shape=record, fontname="Helvetica", fontsize=10, color="#1f4e79"];
+  edge [fontname="Helvetica", fontsize=9, color="#888888"];
+  customers [label="{customers (source)|id (PK)|company_name|business_category  (D2)|company_size|is_test}"];
+  apps      [label="{onboarding_applications|id (PK)|customer_id (FK)|status|submitted_at  (D1 date key)|decided_at}"];
+  adr       [label="{application_decline_reasons|id (PK)|application_id (FK)|reason_code|reason_text  (D3 source)|category}"];
+  ref       [label="{decline_reasons_ref|reason_code (PK)|reason_text|category}"];
+  prod      [label="{banking_products|id (PK)|product_name|product_code}"];
+  customers -> apps [label="1..*"];
+  apps -> adr [label="0..*"];
+  ref -> adr [label="lookup", style=dashed];
+}
+"""
+    return """
+digraph G {
+  rankdir=LR; bgcolor="transparent";
+  node [shape=record, fontname="Helvetica", fontsize=10, color="#1f4e79"];
+  edge [fontname="Helvetica", fontsize=9, color="#888888"];
+  dim  [label="{dim_customer|customer_key (PK)|customer_id|company_name|segment  (D2: was business_category)|company_size}"];
+  fact [label="{fact_application (grain: 1 application)|app_key (PK)|application_id|customer_key (FK)|submitted_year_week  (D1: submission, not approval)|is_approved|is_declined|decision_days|(no decline-reason column  D3)}"];
+  dim -> fact [label="1..*"];
+}
+"""
+
+
 def tab_artifacts() -> None:
     st.header("Project Artifacts")
     st.caption(
@@ -672,6 +704,24 @@ def tab_artifacts() -> None:
     choice = st.selectbox("Select artifact", list(artifact_map))
     path, lang = artifact_map[choice]
     content = _read_file(path)
+
+    if choice == "Source Schema":
+        st.markdown("**Data model — WBB operational source**")
+        st.graphviz_chart(_data_model_dot("source"), use_container_width=True)
+        st.caption(
+            "Markers: **D1** submission-date column · **D2** `business_category` "
+            "(renamed to `segment` downstream) · **D3** decline reason captured "
+            "in the source but never carried to the warehouse."
+        )
+        st.divider()
+    elif choice == "Target Schema":
+        st.markdown("**Data model — WBBAW warehouse (star schema)**")
+        st.graphviz_chart(_data_model_dot("warehouse"), use_container_width=True)
+        st.caption(
+            "Markers: **D1** fact keyed on submission week · **D2** column renamed "
+            "to `segment` · **D3** no decline-reason column exists."
+        )
+        st.divider()
 
     if lang == "markdown":
         st.markdown(content)
@@ -1253,6 +1303,199 @@ ENRICHED WBBAW SYSTEM SPECIFICATION
             st.session_state.chat_messages = []
             st.rerun()
 
+# ── Tab 11: Validation (tests & test data from the spec) ─────────────────────────
+
+def _expected_fact(status: str, submitted_at: str, decided_at):
+    """Apply the spec's documented transformation rules to one application."""
+    week = _iso_week(submitted_at)
+    is_approved = 1 if status == "APPROVED" else 0
+    is_declined = 1 if status == "DECLINED" else 0
+    days = None
+    if decided_at:
+        d1 = datetime.date.fromisoformat(decided_at[:10])
+        d0 = datetime.date.fromisoformat(submitted_at[:10])
+        days = (d1 - d0).days
+    return week, is_approved, is_declined, days
+
+
+def _golden_test_data() -> list:
+    """Designed edge cases (not random) with the outcome the spec's rules dictate."""
+    # (case, status, submitted, decided, size, segment, is_test)
+    cases = [
+        ("C1 Approved, normal",        "APPROVED",  "2026-01-05", "2026-01-08", "MEDIUM", "RETAIL",       False),
+        ("C2 Declined with reason",    "DECLINED",  "2026-01-06", "2026-01-09", "SMALL",  "CONSTRUCTION", False),
+        ("C3 Submitted, undecided",    "SUBMITTED", "2026-01-07", None,         "MICRO",  "TECHNOLOGY",   False),
+        ("C4 Abandoned (excluded)",    "ABANDONED", "2026-01-07", None,         "SMALL",  "RETAIL",       False),
+        ("C5 Test customer (excluded)","APPROVED",  "2026-01-07", "2026-01-09", "LARGE",  "HEALTHCARE",   True),
+        ("C6 Week boundary (Sun→Mon)", "APPROVED",  "2026-01-04", "2026-01-05", "MEDIUM", "LOGISTICS",    False),
+    ]
+    rows = []
+    for name, status, sub, dec, size, seg, is_test in cases:
+        loaded = (not is_test) and status != "ABANDONED"
+        if loaded:
+            week, appr, decl, days = _expected_fact(status, sub, dec)
+            rows.append({
+                "Case": name, "Status": status, "Submitted": sub, "Decided": dec or "—",
+                "Loaded?": "yes", "Exp. week": week,
+                "Approved": appr, "Declined": decl,
+                "Days": "—" if days is None else days,
+            })
+        else:
+            reason = "test customer" if is_test else "ABANDONED"
+            rows.append({
+                "Case": name, "Status": status, "Submitted": sub, "Decided": dec or "—",
+                "Loaded?": f"excluded ({reason})", "Exp. week": "—",
+                "Approved": "—", "Declined": "—", "Days": "—",
+            })
+    return rows
+
+
+def _run_validation_checks() -> list:
+    """Spec-derived checks against the warehouse + artifacts."""
+    conn = get_db()
+    checks = []
+
+    def add(name, category, passed, detail, spec):
+        checks.append({"check": name, "category": category, "passed": bool(passed),
+                       "detail": detail, "spec": spec})
+
+    elig = conn.execute("""
+        SELECT a.id, a.status, a.submitted_at, a.decided_at
+        FROM onboarding_applications a JOIN customers c ON c.id = a.customer_id
+        WHERE c.is_test = 0 AND a.status NOT IN ('ABANDONED')
+    """).fetchall()
+    elig_ids = {r["id"] for r in elig}
+
+    # Transformation rules
+    fact_n = conn.execute("SELECT COUNT(*) FROM wh_fact_application").fetchone()[0]
+    add("Fact grain — one row per eligible application", "Transformation rule",
+        fact_n == len(elig), f"{fact_n} fact rows vs {len(elig)} eligible applications", "[Spec §4]")
+
+    appr_src  = sum(1 for r in elig if r["status"] == "APPROVED")
+    appr_fact = conn.execute("SELECT COALESCE(SUM(is_approved),0) FROM wh_fact_application").fetchone()[0]
+    add("is_approved set iff status = APPROVED", "Transformation rule",
+        appr_src == appr_fact, f"{appr_fact} approved facts vs {appr_src} APPROVED applications", "[Spec §4]")
+
+    fact_ids = {r[0] for r in conn.execute("SELECT application_id FROM wh_fact_application")}
+    leaked = fact_ids - elig_ids
+    add("Test customers and ABANDONED applications excluded", "Transformation rule",
+        not leaked, "no ineligible rows in the warehouse" if not leaked else f"{len(leaked)} ineligible rows leaked", "[Spec §4]")
+
+    bad_days = conn.execute("""
+        SELECT COUNT(*) FROM wh_fact_application f JOIN onboarding_applications a ON a.id = f.application_id
+        WHERE a.decided_at IS NOT NULL AND f.decision_days IS NULL
+    """).fetchone()[0]
+    add("decision_days populated for decided applications", "Transformation rule",
+        bad_days == 0, "all decided applications carry decision_days" if not bad_days else f"{bad_days} missing", "[Spec §4]")
+
+    # Characterization — pin D1–D4
+    mism = sum(1 for r in conn.execute(
+        "SELECT f.submitted_year_week w, a.submitted_at s FROM wh_fact_application f "
+        "JOIN onboarding_applications a ON a.id = f.application_id") if r["w"] != _iso_week(r["s"]))
+    add("D1 — fact keyed on submission date (BRD §5 said approval date)", "Characterization (as-built)",
+        mism == 0, "submitted_year_week matches ISO week of submitted_at for all rows" if not mism else f"{mism} rows differ",
+        "[Spec §6 D1]")
+
+    src_cols = {r["name"] for r in conn.execute("PRAGMA table_info(customers)")}
+    dim_cols = {r["name"] for r in conn.execute("PRAGMA table_info(wh_dim_customer)")}
+    d2_vals  = conn.execute("SELECT COUNT(*) FROM wh_dim_customer d JOIN customers c ON c.id = d.customer_id "
+                            "WHERE d.segment <> c.business_category").fetchone()[0]
+    d2 = ("business_category" in src_cols) and ("segment" in dim_cols) and d2_vals == 0
+    add("D2 — 'business_category' (source) → 'segment' (warehouse); BRD: 'business_segment'", "Characterization (as-built)",
+        d2, "rename chain intact; values carry through unchanged" if d2 else "rename chain broken", "[Spec §6 D2]")
+
+    fcols = {r["name"].lower() for r in conn.execute("PRAGMA table_info(wh_fact_application)")}
+    # The absent column is the decline *reason/description* text — the legitimate
+    # is_declined boolean flag must NOT be mistaken for it.
+    d3 = not any(((("decline" in c and c != "is_declined") or "reason" in c or "description" in c)) for c in fcols)
+    add("D3 — decline reason NOT persisted (story WBB-AW-011 marked Done)", "Characterization (as-built)",
+        d3, "fact_application has no decline/description column — as-built" if d3 else "an unexpected decline column exists",
+        "[Spec §6 D3]")
+
+    jc = _read_file(ARTIFACTS / "job_config.yaml")
+    d4 = ("wbbaudit" in jc) and not any(BASE.rglob("wbbaudit.py"))
+    add("D4 — job references 'wbbaudit' but no such program exists", "Characterization (as-built)",
+        d4, "job_config.yaml runs wbbaudit; no wbbaudit.py in the codebase" if d4 else "reference/program state unexpected",
+        "[Spec §6 D4]")
+
+    # Equivalence
+    ov = query_weekly_volume("wh_fact_application");          rv = query_weekly_volume("regen_fact_application")
+    add("Original ≡ Regenerated — weekly volume", "Equivalence",
+        ov.reset_index(drop=True).equals(rv.reset_index(drop=True)), "identical weekly volumes across both warehouses", "[Governance]")
+    os_ = query_approval_by_segment("wh_dim_customer", "wh_fact_application")
+    rs_ = query_approval_by_segment("regen_dim_customer", "regen_fact_application")
+    add("Original ≡ Regenerated — approval rate by segment", "Equivalence",
+        os_.reset_index(drop=True).equals(rs_.reset_index(drop=True)), "identical segment approval tables across both warehouses", "[Governance]")
+
+    conn.close()
+    return checks
+
+
+def tab_validation() -> None:
+    st.header("Validation — Tests & Test Data from the Spec")
+    st.caption(
+        "The spec defines what 'correct' means — so it can generate the tests and "
+        "golden data that prove it. The characterization tests pin the four "
+        "as-built quirks (D1–D4): a future 'fix' to any of them turns the suite "
+        "red. That is the drift gate, made executable."
+    )
+
+    st.subheader("Spec-derived test suite — run against the warehouse")
+    if st.button("Run validation suite", type="primary"):
+        with st.spinner("Loading both warehouses and running the spec-derived checks..."):
+            run_original_etl()
+            run_regen_etl()
+            st.session_state["validation_checks"] = _run_validation_checks()
+
+    checks = st.session_state.get("validation_checks")
+    if not checks:
+        st.info("Click **Run validation suite** to generate data, run both ETLs, and evaluate the checks.")
+    else:
+        passed = sum(1 for c in checks if c["passed"])
+        total  = len(checks)
+        if passed == total:
+            st.success(
+                f"ALL {total} CHECKS PASSED — the implementation matches the spec, "
+                "including the four documented as-built quirks.",
+                icon="✅",
+            )
+        else:
+            st.error(f"{passed}/{total} passed — {total - passed} divergence(s) from the spec.", icon="❌")
+        st.dataframe(
+            pd.DataFrame([{
+                "": "✅" if c["passed"] else "❌",
+                "Check": c["check"], "Category": c["category"],
+                "Detail": c["detail"], "Spec": c["spec"],
+            } for c in checks]),
+            use_container_width=True, hide_index=True,
+        )
+        st.caption(
+            "The **Characterization** rows assert the discrepancies as-built. "
+            "They pass *because* the system is as-built — and would fail the moment "
+            "someone 'corrects' one. That is exactly the drift signal you want."
+        )
+
+    st.divider()
+    st.subheader("Golden test data — designed from the spec")
+    st.caption("Edge cases the random seed under-covers, each with the outcome the spec's rules dictate.")
+    st.dataframe(pd.DataFrame(_golden_test_data()), use_container_width=True, hide_index=True)
+    st.caption(
+        "**C6 (week boundary)** pins D1: submitted Sunday (ISO 2026-W01), decided Monday "
+        "(2026-W02) — it loads under the **submission** week, not the approval week."
+    )
+
+    st.divider()
+    st.subheader("How these are generated")
+    st.markdown(
+        "The suite and golden data are generated from the spec alone via "
+        "`prompts/04_generate_tests.md` — the same discipline as the spec: every "
+        "test cites a section, open questions become skipped tests, and as-built "
+        "behaviour is asserted, not idealised. Below is a representative "
+        "spec-generated pytest module."
+    )
+    with st.expander("View the spec-generated pytest suite (reference)"):
+        st.code(_read_file(FALLBACK / "test_wbbaw_from_spec.py"), language="python")
+
 # ── Main ───────────────────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -1285,6 +1528,7 @@ def main() -> None:
         "8  Enriched Spec",
         "9  FAQ",
         "10  L3 Chatbot",
+        "11  Validation",
     ])
 
     with tabs[0]:
@@ -1307,6 +1551,8 @@ def main() -> None:
         tab_faq()
     with tabs[9]:
         tab_chatbot()
+    with tabs[10]:
+        tab_validation()
 
 
 if __name__ == "__main__":
