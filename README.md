@@ -103,6 +103,52 @@ root cert is installed in the OS trust store.
 The whole demo is one process: `streamlit_app.py` over a local SQLite database
 (`wbb_demo.db`). No services, no Docker.
 
+```mermaid
+flowchart TB
+  subgraph FLOW["Spec-driven flow — Claude (live tabs, with offline fallbacks)"]
+    direction LR
+    ART["Eight artifacts<br/>BRD · schemas · stories<br/>job config · ETL code"]
+    SPEC["Forensic spec<br/>7 sections · provenance<br/>4 discrepancies surfaced"]
+    REGEN["Regenerated<br/>schema + ETL"]
+    REP["New report<br/>avg days to approval"]
+    TESTS["Spec-derived tests<br/>+ golden data"]
+    TIX["7 ServiceNow tickets"]
+    ENR["Enriched spec<br/>+ operational history"]
+    FAQ["FAQ"]
+    BOT["L3 chatbot"]
+    ART -->|"01 reverse-engineer"| SPEC
+    SPEC -->|"02 regenerate"| REGEN
+    SPEC -->|"03 new report"| REP
+    SPEC -->|"04 tests"| TESTS
+    SPEC --> ENR
+    TIX --> ENR
+    ENR --> FAQ
+    ENR --> BOT
+  end
+
+  subgraph RUNTIME["Runtime — one Streamlit process over local SQLite (wbb_demo.db)"]
+    direction LR
+    SRC["Source tables<br/>customers · onboarding_applications<br/>auto-seeded ~30 days"]
+    OETL["Original ETL<br/>simulator"]
+    RETL["Regenerated ETL<br/>simulator"]
+    WH1[("wh_* warehouse")]
+    WH2[("regen_* warehouse")]
+    PROOF{{"Proof<br/>compare → EQUIVALENT"}}
+    SRC --> OETL --> WH1
+    SRC --> RETL --> WH2
+    WH1 --> PROOF
+    WH2 --> PROOF
+  end
+
+  REGEN -.->|"is realised as"| RETL
+  TESTS -.->|"run against"| WH1
+```
+
+*Top: the method — artifacts become a spec, and the spec generates everything
+downstream (regeneration, a new report, tests, the enriched spec, FAQ, and the
+chatbot). Bottom: the runtime — the source feeds two independently-written ETL
+simulators into two warehouses that the Proof and Validation tabs compare.*
+
 - **Source system.** On first run the app seeds ~30 days of synthetic onboarding
   applications into `onboarding_applications` / `customers`. Tab 1 reads and
   writes this live.
