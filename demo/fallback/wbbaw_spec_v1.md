@@ -1,8 +1,8 @@
 # WBB Analytics Warehouse — Forensic Specification
 
 **Specification version:** 1.0  
-**Produced by:** Forensic reverse engineering of artifact bundle (BRD v1.1, source schema, target schema, user stories export, job_config.yaml, wbbxtr.py, wbbldr.py, wbb_common.py)  
-**Artifact bundle versions:** WBB-BRD-AW-001 v1.1 (15 Jan 2026), source schema last modified 2026-01-08, target schema last modified 2026-01-20, user stories export dated 28 Jan 2026, job_config.yaml last updated 2026-01-20, ETL code last changed 2026-01-20  
+**Produced by:** Forensic reverse engineering of artifact bundle (BRD v1.1, source schema, target schema, user stories export, job_config.yaml, wbbxtr.py, wbbldr.py, wbb_common.py, runtime_environment.md, requirements.txt)  
+**Artifact bundle versions:** WBB-BRD-AW-001 v1.1 (15 Jan 2026), source schema last modified 2026-01-08, target schema last modified 2026-01-20, user stories export dated 28 Jan 2026, job_config.yaml last updated 2026-01-20, ETL code last changed 2026-01-20, runtime environment last updated 2026-04-29 (deployment history through the 2026-04-28 platform refresh)  
 **Analyst note:** This document records what the artifacts say, not what any individual believed was intended. Where the artifacts disagree, both positions are recorded and the discrepancy is catalogued in Section 6. Where the artifacts are silent, the gap is named in Section 7.
 
 ---
@@ -144,11 +144,17 @@ Database connection strings are injected from a secrets manager via `WBB_SOURCE_
 
 The ETL uses a four-value exit code convention: RC_OK = 0 (success), RC_WARN = 4 (success with warnings), RC_RETRY = 8 (recoverable failure, retry likely to succeed), RC_FATAL = 12 (unrecoverable failure, manual intervention required) [wbb_common.py, exit codes].
 
+**5.10 Runtime environment and dependency versions**
+
+The ETL executes in a separately-managed runtime environment documented in `runtime_environment.md` and pinned in `etl/requirements.txt`. As deployed after the 2026-04-28 platform refresh (CHG-WBB-0058), the runtime is Python 3.12.3 with psycopg2-binary 2.9.9 on the `wbb/python-batch:2026.04` base image (Debian 12) [runtime_environment.md §2; requirements.txt]. The environment was previously Python 3.10.13 with psycopg2-binary 2.9.5 on a Debian 11 base image [runtime_environment.md §4, deployment history].
+
+The deployment history records five environment events between 2025-11-03 and 2026-04-28; only the 2026-04-28 refresh changed the interpreter and libraries [runtime_environment.md §4]. The runtime configuration table notes that the legacy base image set `PYTHONHASHSEED=0` and that the standardised 2026.04 image does not carry this override [runtime_environment.md §3]. The artifact explicitly flags that the ETL's surrogate keys are generated in application code and that their stability is a function of the runtime, not the schema — a dependency not documented in the BRD, the user stories, or the ETL code comments [runtime_environment.md §5]. See Discrepancy D5.
+
 ---
 
 ### 6. Discrepancies Found
 
-Four discrepancies were identified through cross-artifact analysis. Each is documented below with source citations, quoted evidence, and an analyst assessment of the as-built behaviour.
+Five discrepancies were identified through cross-artifact analysis. Each is documented below with source citations, quoted evidence, and an analyst assessment of the as-built behaviour.
 
 ---
 
@@ -236,6 +242,33 @@ No column named `decline_description`, `decline_reason_description`, `reason_des
 
 ---
 
+**D5 — Surrogate-key generation depends on a runtime setting that changed in the 2026-04-28 platform refresh, breaking referential integrity for returning customers**
+
+*As-built code [wbbldr.py, surrogate key functions]:*
+> `def customer_key(customer_id: int) -> int:`
+> `    return abs(hash(('cust', customer_id))) & ((1 << 63) - 1)`
+
+Surrogate keys are derived from Python's built-in `hash()` over a tuple whose first element is a string literal. CPython salts string hashing per process via `PYTHONHASHSEED`.
+
+*Environment position [runtime_environment.md §3, runtime configuration]:*
+> The legacy (pre-2026-04-28) base image set `PYTHONHASHSEED=0`; the standardised `wbb/python-batch:2026.04` image leaves it unset.
+
+*Environment history [runtime_environment.md §4]:*
+> 2026-04-28 — Python 3.10.13 → 3.12.3, psycopg2-binary 2.9.5 → 2.9.9, Debian 11 → 12; legacy runtime overrides not carried forward (CHG-WBB-0058). Application code unchanged.
+
+*Load behaviour [wbbldr.py, `upsert_dim_customer`]:*
+The dimension upsert uses `ON CONFLICT (customer_id) DO UPDATE SET …` and does **not** include `customer_key` in the update set. Existing `dim_customer` rows therefore retain their original `customer_key`, while `load_fact` writes a freshly-computed `customer_key` onto `fact_application`.
+
+*Operational evidence [INC-WBB-0018; DEF-WBB-0060]:*
+From the run of 2026-04-29 the load began failing with foreign-key violations (`fact_application.customer_key` not present in `dim_customer`) for returning customers; applications from new customers loaded normally. The only change in the preceding 24 hours was the platform refresh.
+
+*Forensic foreshadowing [Spec §4.4; §7 Q4]:*
+The forensic spec had already recorded that the surrogate keys are "not guaranteed to be stable across Python version upgrades or platform changes" and that this had not been formally assessed.
+
+*Analyst note:* With `PYTHONHASHSEED` unset, `hash(('cust', customer_id))` yields a different value in each interpreter process. The keys were stable for months only because the legacy image pinned the seed to 0; removing that override during a routine security patch decoupled the keys from their historical values. Because the dimension upsert preserves the old `customer_key` on conflict while the fact load uses the new one, referential integrity breaks for any customer already present in the warehouse. This discrepancy is not visible from any single artifact — it requires correlating the surrogate-key code, the runtime environment history (`runtime_environment.md`), and the incident timeline (`INC-WBB-0018`). The interim mitigation (re-pinning `PYTHONHASHSEED=0` and a full reload) restores the old behaviour but leaves the underlying dependence on a salted hash in place; a runtime-independent key derivation is the durable fix [INC-WBB-0018 work notes; DEF-WBB-0060].
+
+---
+
 ### 7. Open Questions
 
 The following gaps were identified during analysis. Each represents something the artifacts do not specify. They are recorded here without invented answers.
@@ -250,7 +283,7 @@ The `dim_product` seed at `product_key = -1` exists for defaulting unresolvable 
 BRD §3.1 states "the warehouse must handle unexpected values gracefully, defaulting to a defined 'Unknown' segment label rather than failing the load." The ETL maps `business_category` directly to `segment` with no normalisation step [wbbldr.py, `upsert_dim_customer`]. Not specified in available artifacts whether a downstream process applies this defaulting, or whether unexpected values are currently passing through verbatim.
 
 **Q4 — Are surrogate keys stable across Python environments?**  
-Surrogate keys are generated using Python's built-in `hash()` function [wbbldr.py, surrogate key functions]. Python's `hash()` is randomised by default for string inputs (PYTHONHASHSEED) but is deterministic for integers. Since the inputs are tuples containing an integer natural key (customer_id, application_id, product_id), the hash output should be stable across runs on the same platform. Not specified in available artifacts whether this has been formally assessed, or what the recovery procedure is if keys were to diverge.
+Surrogate keys are generated using Python's built-in `hash()` function [wbbldr.py, surrogate key functions]. Python's `hash()` is randomised by default for string inputs (PYTHONHASHSEED) but is deterministic for integers. Since the inputs are tuples containing an integer natural key (customer_id, application_id, product_id), the hash output should be stable across runs on the same platform. Not specified in available artifacts whether this has been formally assessed, or what the recovery procedure is if keys were to diverge. *(This risk was subsequently realised in production by the 2026-04-28 platform refresh — see Discrepancy D5.)*
 
 **Q5 — What does COMMIT_INTERVAL do in the load?**  
 The load step is configured with `COMMIT_INTERVAL: "5000"` [job_config.yaml, load step params]. This parameter is not referenced anywhere in `wbbldr.py`. The load currently issues a single commit after all dimension and fact rows are processed [wbbldr.py, `load` function — single `conn.commit()` after the full batch]. Not specified in available artifacts whether this parameter was intended for a batched-commit implementation that was not built, or is a configuration placeholder for future use.

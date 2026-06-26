@@ -13,7 +13,7 @@ A complete, runnable demonstration that a **forensic specification** — reverse
 ## Key Features
 
 - **Forensic reverse engineering** — generates a specification where every claim carries a provenance citation and contradictions are preserved, not smoothed away.
-- **Four planted discrepancies** — deliberately seeded across the artifacts; the method surfaces them automatically (the centrepiece of the demo).
+- **Five planted discrepancies** — deliberately seeded across the artifacts (including a runtime/version-drift discrepancy); the method surfaces them automatically (the centrepiece of the demo).
 - **Regeneration from spec alone** — rebuilds schema + ETL from the spec with no access to the original code, then proves semantic equivalence.
 - **Equivalence proof** — runs both pipelines against the same data and shows identical business outputs (the governance mechanism for drift).
 - **Spec-driven extension** — adds a new analytical report straight from the spec.
@@ -22,12 +22,12 @@ A complete, runnable demonstration that a **forensic specification** — reverse
 
 ## Contents
 
-- [What this demonstrates](#what-this-demonstrates) — the ten tabs
+- [What this demonstrates](#what-this-demonstrates) — the twelve tabs
 - [Prerequisites](#prerequisites) · [Setup](#setup)
 - [Architecture](#architecture) — how it works
-- [Running the demo](#running-the-demo) — the six acts, with talk track
+- [Running the demo](#running-the-demo) — the acts, with talk track
 - [Fallback](#fallback--if-live-generation-fails)
-- [The four seeded inconsistencies](#the-four-seeded-inconsistencies)
+- [The five seeded inconsistencies](#the-five-seeded-inconsistencies)
 - [Key file map](#key-file-map)
 - [What this is (and isn't)](#what-this-is-and-isnt)
 - [Applying this to real TD work](#applying-this-to-real-td-work)
@@ -53,6 +53,8 @@ The demo runs as a single Streamlit application — no Docker required.
 | 8 Enriched Spec | Spec + operational history | One document serves delivery and L3 support |
 | 9 FAQ | Generated from enriched spec | Knowledge made accessible without reading the spec |
 | 10 L3 Chatbot | Embedded Claude chatbot | Knowledge made interactive — bounded by the spec |
+| 11 Validation | Spec-derived tests + golden data | The spec defines "correct" — and can prove it |
+| 12 Version Drift | Environment & version history vs. incidents | Updates cause tickets — shown, not asserted (D5) |
 
 ---
 
@@ -107,12 +109,12 @@ The whole demo is one process: `streamlit_app.py` over a local SQLite database
 flowchart TB
   subgraph FLOW["Spec-driven flow — Claude (live tabs, with offline fallbacks)"]
     direction LR
-    ART["Eight artifacts<br/>BRD · schemas · stories<br/>job config · ETL code"]
-    SPEC["Forensic spec<br/>7 sections · provenance<br/>4 discrepancies surfaced"]
+    ART["Ten artifacts<br/>BRD · schemas · stories<br/>job config · ETL code · runtime env"]
+    SPEC["Forensic spec<br/>7 sections · provenance<br/>5 discrepancies surfaced"]
     REGEN["Regenerated<br/>schema + ETL"]
     REP["New report<br/>avg days to approval"]
     TESTS["Spec-derived tests<br/>+ golden data"]
-    TIX["7 ServiceNow tickets"]
+    TIX["8 ServiceNow tickets"]
     ENR["Enriched spec<br/>+ operational history"]
     FAQ["FAQ"]
     BOT["L3 chatbot"]
@@ -159,7 +161,7 @@ simulators into two warehouses that the Proof and Validation tabs compare.*
   surrogate-key formula) to model independently-authored code — while producing
   the same business outputs. This is what Tab 5 compares.
 - **Live generation.** Tabs 3, 4, and 10 call the Anthropic API (`claude-sonnet-4-6`).
-  Tab 3 sends `prompts/01_reverse_engineering.md` + the eight artifacts; Tab 4
+  Tab 3 sends `prompts/01_reverse_engineering.md` + the ten artifacts; Tab 4
   sends `prompts/02_regeneration.md` + the spec alone; Tab 10 sends the enriched
   spec as a bounded system prompt. Tabs 3/4 stream side-by-side (reference vs
   fresh run); on a network drop they fall back to `demo/fallback/`.
@@ -185,7 +187,7 @@ Show the onboarding platform running. Click "Add New Application" to show it's l
 > *"This is the source system. Business banking customers applying for WBB products. The ETL pipeline reads from this database every night."*
 
 **Tab 2 — Artifacts**  
-Flip through the six artifacts: BRD, source schema, ETL extract. These are the standard delivery outputs.
+Flip through the artifact bundle: BRD, source schema, ETL code, and the runtime environment. These are the standard delivery outputs.
 
 > *"When we went to understand this system, here's what we had. Looks reasonable. But does the code actually do what the BRD says?"*
 
@@ -194,7 +196,7 @@ Flip through the six artifacts: BRD, source schema, ETL extract. These are the s
 ### Act 2 — Forensic reverse engineering (Tab 3, ~6 min)
 
 **Tab 3 — Spec**  
-Click **Generate Spec Live**. Claude reads all eight artifacts and streams the forensic specification.
+Click **Generate Spec Live**. Claude reads all ten artifacts and streams the forensic specification.
 
 While it runs (~90 seconds):
 
@@ -206,8 +208,9 @@ When it finishes, scroll to **Section 6 — Discrepancies Found**. Walk through 
 2. **Three-name field** — BRD: `business_segment`. Source: `business_category`. Warehouse: `segment`. Three names, one concept.
 3. **Done but not implemented** — WBB-AW-011 ("Capture decline reason") marked Done. Extract carries `decline_description` to staging. Load never writes it. Warehouse has no column. Found only by tracing data flow.
 4. **Orphaned reference** — `job_config.yaml` runs program `wbbaudit`. No `wbbaudit.py` exists. Pipeline fails at the audit step on every run.
+5. **Version drift** — a routine runtime upgrade (Python 3.10→3.12) silently destabilised the hash-based surrogate keys; the nightly load began failing with FK violations for returning customers. Found only by correlating the version history with the incident timeline (walk this in Tab 12).
 
-> *"Four inconsistencies in a system built over five sprints by a small team. None visible from reading the BRD. They emerge from reading the code as evidence."*
+> *"Five inconsistencies in a system built over five sprints by a small team. None visible from reading the BRD. They emerge from reading the code — and the runtime — as evidence."*
 
 ---
 
@@ -253,7 +256,7 @@ Show the feature document (Step 1: feasibility check). All data elements are alr
 ### Act 6 — Production knowledge (Tabs 7–10, ~5 min)
 
 **Tab 7 — Production Tickets**  
-Show the seven incidents. Point out that four link directly to the seeded discrepancies — D1, D2, D3, D4.
+Show the eight incidents. Point out that five link directly to the seeded discrepancies — D1 through D5.
 
 > *"The spec predicted these tickets before they were raised."*
 
@@ -277,6 +280,20 @@ Type: `We're seeing a new error code PIIMASK-403 in the extract logs`
 
 ---
 
+### Act 7 — Validation & version drift (Tabs 11–12, ~4 min)
+
+**Tab 11 — Validation**  
+Click **Run validation suite**. The spec-derived characterization tests assert the as-built quirks (D1–D4): they pass *because* the system is as-built, and a future "fix" turns the suite red.
+
+> *"The spec defines what 'correct' means — so it can generate the tests that prove it. This is the drift gate, made executable."*
+
+**Tab 12 — Version Drift**  
+This is the fifth discrepancy — and the one conventional review never sees. Point at the timeline: incidents per week, with the cluster at the end of April lining up with the **2026-04-28** runtime upgrade. Walk the D5 provenance chain: the surrogate-key code, the `PYTHONHASHSEED=0` override the new base image dropped, the upgrade date, and `INC-WBB-0018`.
+
+> *"A routine security patch — no code change — broke referential integrity in the warehouse. You can only see why by putting the version history next to the incident timeline. Environment is evidence. For a migration team, this is the whole game: move the runtime, and the keys you depend on can silently change."*
+
+---
+
 ## Fallback — if live generation fails
 
 Pre-generated outputs are in `demo/fallback/`. If Tab 3 or Tab 4 generation is slow or fails, the tabs automatically show the fallback files — no action needed. A mid-stream network drop (e.g. a flaky corporate proxy) is caught: the tab shows a brief notice and leaves the pre-built version in place rather than surfacing an error. The Tab 10 chatbot likewise degrades to a friendly "try again" message instead of a traceback.
@@ -291,7 +308,7 @@ Pre-generated outputs are in `demo/fallback/`. If Tab 3 or Tab 4 generation is s
 
 ---
 
-## The four seeded inconsistencies
+## The five seeded inconsistencies
 
 These are deliberately planted. Do not fix them — they are the centrepiece of Act 2.
 
@@ -303,13 +320,15 @@ These are deliberately planted. Do not fix them — they are the centrepiece of 
 
 4. **Orphaned reference** — `job_config.yaml` step `audit` runs `wbbaudit`. No `wbbaudit.py` exists anywhere in the codebase.
 
+5. **Version drift (D5)** — the ETL computes surrogate keys with Python's salted `hash()`, stable only while `PYTHONHASHSEED` is pinned. The legacy base image pinned it; the 2026-04-28 platform refresh (Python 3.10→3.12) dropped it, so keys for returning customers diverged and the nightly load began failing with foreign-key violations. Planted across `runtime_environment.md`, `wbbldr.py`, and `INC-WBB-0018`; discoverable only by correlating the version history with the incident timeline. Foreshadowed by the spec's own §4.4 / Q4.
+
 ---
 
 ## Key file map
 
 | Path | What it is |
 |------|-----------|
-| `streamlit_app.py` | The 10-tab demo application |
+| `streamlit_app.py` | The 12-tab demo application |
 | `rebuild.md` | Self-contained brief to reconstruct this demo in another environment (e.g. TD — no Docker, offline-first) |
 | `requirements_streamlit.txt` | Python dependencies (`streamlit`, `pandas`, `anthropic`) |
 | `.streamlit/config.toml` | Streamlit theme (TD blue) |
@@ -322,7 +341,9 @@ These are deliberately planted. Do not fix them — they are the centrepiece of 
 | `artifacts/etl/wbbxtr.py` | Extract step |
 | `artifacts/etl/wbbldr.py` | Load step |
 | `artifacts/etl/wbb_common.py` | Shared utilities |
-| `artifacts/servicenow_tickets_wbb.json` | 7 WBB-domain ServiceNow incidents |
+| `artifacts/etl/requirements.txt` | Pinned ETL runtime dependencies |
+| `artifacts/runtime_environment.md` | Runtime environment + dependency/version history |
+| `artifacts/servicenow_tickets_wbb.json` | 8 WBB-domain ServiceNow incidents |
 | `prompts/01_reverse_engineering.md` | Reverse-engineering prompt |
 | `prompts/02_regeneration.md` | Regeneration prompt |
 | `prompts/03_new_report.md` | New feature prompt |
@@ -378,8 +399,8 @@ see **[`rebuild.md`](rebuild.md)**. It is a self-contained reconstruction brief:
 hand it to a capable coding assistant and it can rebuild a semantically
 equivalent demo from scratch. It covers the environment constraints and
 adaptations (including an **offline-first** mode that needs no network), the data
-model, the four seeded inconsistencies, the prompts verbatim, the ETL
-simulators, all ten tabs, the hard-won implementation fixes, a build sequence,
+model, the five seeded inconsistencies, the prompts verbatim, the ETL
+simulators, all twelve tabs, the hard-won implementation fixes, a build sequence,
 and an acceptance checklist.
 
 ---

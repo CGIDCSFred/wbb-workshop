@@ -1,18 +1,20 @@
 """
 WBB Analytics Warehouse — Spec-Driven Development Demo
-10-tab Streamlit application, SQLite backend, no Docker required.
+12-tab Streamlit application, SQLite backend, no Docker required.
 
 Tabs:
   1  Live System              customer onboarding running in-process
-  2  Artifacts                BRD, schemas, user stories, job config, ETL code
+  2  Artifacts                BRD, schemas, user stories, job config, ETL code, runtime env
   3  Spec                     forensic reverse-engineering output
   4  Regenerated Artifacts    schema + ETL rebuilt from spec alone
   5  Proof: Drift Managed     original vs regenerated — same business outputs
   6  New Feature              avg-days-to-approval added from spec as launchpad
-  7  Production Tickets       7 WBB ServiceNow incidents
+  7  Production Tickets       8 WBB ServiceNow incidents
   8  Enriched Spec            spec + operational knowledge from ticket history
   9  FAQ                      generated from enriched spec
   10 L3 Support Chatbot       embedded Claude API chatbot
+  11 Validation              spec-derived tests + golden data
+  12 Version Drift            environment/version history — D5 surfaced
 
 Run:   streamlit run streamlit_app.py
 Deps:  pip install streamlit pandas anthropic
@@ -549,6 +551,8 @@ def _build_spec_prompt() -> str:
         ("wbbxtr.py",              ARTIFACTS / "etl" / "wbbxtr.py"),
         ("wbbldr.py",              ARTIFACTS / "etl" / "wbbldr.py"),
         ("wbb_common.py",          ARTIFACTS / "etl" / "wbb_common.py"),
+        ("runtime_environment.md", ARTIFACTS / "runtime_environment.md"),
+        ("requirements.txt",       ARTIFACTS / "etl" / "requirements.txt"),
     ]
     block = "Here are the project artifacts for the WBB Analytics Warehouse:\n"
     for name, path in artifact_files:
@@ -687,18 +691,20 @@ digraph G {
 def tab_artifacts() -> None:
     st.header("Project Artifacts")
     st.caption(
-        "Six artifacts produced during the WBB Analytics Warehouse delivery. "
+        "The delivery artifact bundle for the WBB Analytics Warehouse. "
         "These are the raw inputs to the forensic reverse-engineering pass."
     )
 
     artifact_map = {
-        "BRD v1.1":        (ARTIFACTS / "brd_wbb_v1.1.md",          "markdown"),
-        "Source Schema":   (ARTIFACTS / "source_schema.sql",         "sql"),
-        "Target Schema":   (ARTIFACTS / "target_schema.sql",         "sql"),
-        "User Stories":    (ARTIFACTS / "user_stories_export.md",    "markdown"),
-        "Job Config":      (ARTIFACTS / "job_config.yaml",           "yaml"),
-        "ETL Extract":     (ARTIFACTS / "etl" / "wbbxtr.py",         "python"),
-        "ETL Load":        (ARTIFACTS / "etl" / "wbbldr.py",         "python"),
+        "BRD v1.1":            (ARTIFACTS / "brd_wbb_v1.1.md",          "markdown"),
+        "Source Schema":       (ARTIFACTS / "source_schema.sql",         "sql"),
+        "Target Schema":       (ARTIFACTS / "target_schema.sql",         "sql"),
+        "User Stories":        (ARTIFACTS / "user_stories_export.md",    "markdown"),
+        "Job Config":          (ARTIFACTS / "job_config.yaml",           "yaml"),
+        "ETL Extract":         (ARTIFACTS / "etl" / "wbbxtr.py",         "python"),
+        "ETL Load":            (ARTIFACTS / "etl" / "wbbldr.py",         "python"),
+        "Runtime Environment": (ARTIFACTS / "runtime_environment.md",    "markdown"),
+        "Requirements":        (ARTIFACTS / "etl" / "requirements.txt",  "text"),
     }
 
     choice = st.selectbox("Select artifact", list(artifact_map))
@@ -756,11 +762,12 @@ def tab_spec() -> None:
             generate = st.button("Generate Spec Live", type="primary", use_container_width=True)
 
     st.info(
-        "**4 discrepancies found.** "
+        "**5 discrepancies found.** "
         "D1 — date key mismatch (submitted vs approval date).  "
         "D2 — three names for one field.  "
         "D3 — story Done, feature missing from warehouse.  "
-        "D4 — job references program that does not exist.",
+        "D4 — job references program that does not exist.  "
+        "D5 — runtime upgrade silently broke surrogate keys (see Tab 12).",
         icon="🔍",
     )
 
@@ -1088,8 +1095,8 @@ This feature required no schema amendment — all data was already present.
 def tab_production_tickets() -> None:
     st.header("Production Tickets — WBB Analytics Warehouse")
     st.caption(
-        "Seven ServiceNow incidents raised against the WBBAW pipeline over six months. "
-        "Four map directly to the seeded discrepancies. Three surface open questions."
+        "Eight ServiceNow incidents raised against the WBBAW pipeline over six months. "
+        "Five map directly to the seeded discrepancies (D1–D5). Three surface open questions."
     )
 
     ticket_path = ARTIFACTS / "servicenow_tickets_wbb.json"
@@ -1437,7 +1444,8 @@ def tab_validation() -> None:
         "The spec defines what 'correct' means — so it can generate the tests and "
         "golden data that prove it. The characterization tests pin the four "
         "as-built quirks (D1–D4): a future 'fix' to any of them turns the suite "
-        "red. That is the drift gate, made executable."
+        "red. That is the drift gate, made executable. (D5 — runtime/version drift — "
+        "is an environment discrepancy surfaced in Tab 12, not a data-equivalence check.)"
     )
 
     st.subheader("Spec-derived test suite — run against the warehouse")
@@ -1496,6 +1504,119 @@ def tab_validation() -> None:
     with st.expander("View the spec-generated pytest suite (reference)"):
         st.code(_read_file(FALLBACK / "test_wbbaw_from_spec.py"), language="python")
 
+# ── Tab 12: Environment & Version Drift ────────────────────────────────────────
+
+# Runtime environment events for the WBBAW ETL, from runtime_environment.md §4.
+# Hardcoded so the timeline renders offline and deterministically (no API call).
+_VERSION_EVENTS = [
+    {"date": "2025-11-03", "change": "Initial deployment — Python 3.10.13, psycopg2 2.9.5, Debian 11, PYTHONHASHSEED=0",
+     "driver": "WBBAW v1 go-live",        "record": "CHG-WBB-0008", "runtime_change": True},
+    {"date": "2026-01-08", "change": "Source schema added approved_dt (DB-side; no runtime change)",
+     "driver": "Source platform release", "record": "CHG-WBB-0019", "runtime_change": False},
+    {"date": "2026-01-20", "change": "Target schema + ETL code updated for approved_dt / first_product_type",
+     "driver": "Sprint 5 follow-up",      "record": "CHG-WBB-0024", "runtime_change": False},
+    {"date": "2026-02-03", "change": "Audit-step bypass applied to production job_config.yaml",
+     "driver": "INC-WBB-0011 workaround", "record": "CHG-WBB-0029", "runtime_change": False},
+    {"date": "2026-04-28", "change": "Platform refresh — Python 3.10→3.12, psycopg2 2.9.5→2.9.9, Debian 11→12, legacy overrides (PYTHONHASHSEED=0) dropped",
+     "driver": "Mandatory CVE remediation", "record": "CHG-WBB-0058", "runtime_change": True},
+]
+
+
+def tab_version_drift() -> None:
+    st.header("Environment & Version Drift")
+    st.caption(
+        "Software, libraries, and version history as forensic evidence. "
+        "The hypothesis — updates cause trouble tickets — demonstrated from the "
+        "artifacts, not asserted."
+    )
+
+    st.info(
+        "**D5 — the fifth seeded discrepancy.** A routine 2026-04-28 platform "
+        "refresh (Python 3.10→3.12, base-image standardisation) silently "
+        "destabilised the ETL's surrogate keys and broke referential integrity "
+        "for returning customers. Visible only by correlating the version "
+        "history, the surrogate-key code, and the incident timeline.",
+        icon="🔍",
+    )
+
+    # ── Version-change timeline vs incidents ───────────────────────────────────
+    st.subheader("Version-change timeline vs. incidents")
+
+    # One chronological axis: environment changes interleaved with incidents.
+    timeline_rows = [
+        {"date": e["date"], "type": "🔧 env change", "ref": e["record"], "detail": e["change"]}
+        for e in _VERSION_EVENTS
+    ]
+    incident_rows = []
+    ticket_path = ARTIFACTS / "servicenow_tickets_wbb.json"
+    if ticket_path.exists():
+        tickets = json.loads(ticket_path.read_text(encoding="utf-8"))
+        incident_rows = [
+            {"date": t["opened_at"][:10], "type": "🎫 incident",
+             "ref": t["number"], "detail": t["short_description"]}
+            for t in tickets
+        ]
+
+    timeline = (
+        pd.DataFrame(timeline_rows + incident_rows)
+        .sort_values(["date", "type"])
+        .reset_index(drop=True)
+    )
+    st.dataframe(timeline, use_container_width=True, hide_index=True)
+    st.caption(
+        "Environment changes and incidents on one axis. Of the two runtime upgrades "
+        "(2025-11-03 and 2026-04-28), only the **2026-04-28** refresh is immediately "
+        "followed by an incident — **INC-WBB-0018, the very next day**. That next-day "
+        "adjacency, not raw volume, is the D5 signal: a security patch with no code "
+        "change broke the warehouse."
+    )
+
+    if incident_rows:
+        inc_df = pd.DataFrame(incident_rows)
+        inc_df["date"] = pd.to_datetime(inc_df["date"])
+        monthly = inc_df.set_index("date").resample("MS")["ref"].count().rename("incidents")
+        monthly.index = monthly.index.strftime("%Y-%m")
+        st.bar_chart(monthly)
+        st.caption("Incidents per month across the six-month operational window.")
+
+    st.divider()
+
+    # ── The D5 provenance chain ────────────────────────────────────────────────
+    st.subheader("D5 — the provenance chain")
+    st.markdown(
+        "No single artifact reveals D5. It emerges only by tracing across four:\n\n"
+        "1. **Code** — `wbbldr.py` computes `customer_key = abs(hash(('cust', customer_id)))`. "
+        "The string in the tuple makes the hash salted per process by `PYTHONHASHSEED`.\n"
+        "2. **Environment** — `runtime_environment.md` §3 shows the legacy image pinned "
+        "`PYTHONHASHSEED=0`; the 2026-04-28 standardised image dropped it.\n"
+        "3. **History** — `runtime_environment.md` §4 dates the interpreter / base-image "
+        "upgrade to 2026-04-28 (CHG-WBB-0058), with **no** application-code change.\n"
+        "4. **Incident** — `INC-WBB-0018` reports foreign-key violations on `fact_application` "
+        "for returning customers from the 2026-04-29 run onward.\n\n"
+        "The dimension upsert (`ON CONFLICT(customer_id)`) keeps the **old** `customer_key` "
+        "while the fact load writes the **new** one → the FK no longer resolves. "
+        "The forensic spec had already flagged this exact risk as unassessed in §4.4 / Q4 — "
+        "D5 is that open question resolved with operational evidence."
+    )
+
+    st.success(
+        "**Methodology point.** Environment facts are forensic evidence. A version pin can "
+        "encode a behavioural contract (here, key stability). The spec should capture the "
+        "version facts that are *load-bearing* — not become an inventory. ‘Updates cause "
+        "tickets’ is shown by correlating the version history with the incident timeline — "
+        "the same discipline as the rest of the spec.",
+        icon="🎯",
+    )
+
+    st.divider()
+
+    # ── The underlying artifacts ───────────────────────────────────────────────
+    st.subheader("The environment artifacts")
+    with st.expander("runtime_environment.md"):
+        st.markdown(_read_file(ARTIFACTS / "runtime_environment.md"))
+    with st.expander("etl/requirements.txt"):
+        st.code(_read_file(ARTIFACTS / "etl" / "requirements.txt"), language="text")
+
 # ── Main ───────────────────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -1529,6 +1650,7 @@ def main() -> None:
         "9  FAQ",
         "10  L3 Chatbot",
         "11  Validation",
+        "12  Version Drift",
     ])
 
     with tabs[0]:
@@ -1553,6 +1675,8 @@ def main() -> None:
         tab_chatbot()
     with tabs[10]:
         tab_validation()
+    with tabs[11]:
+        tab_version_drift()
 
 
 if __name__ == "__main__":

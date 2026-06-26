@@ -96,5 +96,19 @@
     "work_notes": "L3 confirmed: no wbbnotify.py file exists in the ETL codebase (same class of issue as wbbaudit — program referenced in job_config.yaml but never implemented). The workaround applied in CHG-WBB-0029 routes load success directly to notify_success step, which calls wbbnotify. Since wbbnotify does not exist, the step fails silently (job runner was configured to ignore terminal step failures). Failure alerts were also not reaching the channel. Spec §7 Q8 documents wbbnotify as unimplemented.",
     "resolution_notes": "Incident closed. Root cause: wbbnotify not implemented — same gap category as wbbaudit (spec §5.6, §5.7, Q8). Interim workaround: Operations team monitoring job runner dashboard manually pending wbbnotify implementation. DEF-WBB-0055 raised. Related to DEF-WBB-0041 (wbbaudit) — both missing programs should be implemented together.",
     "defect_reference": "DEF-WBB-0055"
+  },
+  {
+    "number": "INC-WBB-0018",
+    "opened_at": "2026-04-29T02:40:00",
+    "closed_at": null,
+    "priority": "P1 - Critical",
+    "state": "In Progress",
+    "configuration_item": "WBBAW-BATCH",
+    "short_description": "Nightly load fails with foreign-key violations on fact_application after 2026-04-28 platform refresh",
+    "spec_link": "Spec §6 D5, §4.4, §7 Q4",
+    "description": "Starting with the run of 2026-04-29 (01:00 UTC), the nightly load step began aborting with PostgreSQL foreign-key violations: 'insert or update on table \"fact_application\" violates foreign key constraint \"fact_application_customer_key_fkey\" — Key (customer_key)=(...) is not present in table \"dim_customer\"'. On-call paged at 02:40 UTC. The failures affect applications from RETURNING customers (customers already present in dim_customer from earlier runs); applications from brand-new customers load without error. Extract completed normally and the staging file was well-formed. The only change in the preceding 24 hours was the 2026-04-28 platform refresh (CHG-WBB-0058) — no application code was deployed.",
+    "work_notes": "L3 root-cause trace:\n1. Correlated onset (2026-04-29 run) with runtime_environment.md deployment history: 2026-04-28 platform refresh CHG-WBB-0058 upgraded the base image (Python 3.10.13 -> 3.12.3, psycopg2-binary 2.9.5 -> 2.9.9, Debian 11 -> 12). No ETL code change.\n2. wbbldr.py generates surrogate keys in application code: customer_key = abs(hash(('cust', customer_id))) & ((1<<63)-1). The hash input is a tuple containing the string 'cust', so CPython salts the hash per-process via PYTHONHASHSEED.\n3. runtime_environment.md §3: the legacy bullseye base image set PYTHONHASHSEED=0 (fixed seed -> stable string hashes across process restarts). The standardised 2026.04 image does not carry that override -> PYTHONHASHSEED is now unset -> a fresh random salt every job run.\n4. Effect: customer_key for a given customer_id now differs from the value computed under the old runtime. upsert_dim_customer uses ON CONFLICT (customer_id) DO UPDATE SET ... which does NOT update customer_key, so existing dim_customer rows retain their OLD key; load_fact writes the NEW key onto fact_application. The fact FK (customer_key -> dim_customer.customer_key) no longer resolves for returning customers. New customers are inserted into dim_customer with the new key in the same run, so their facts resolve.\n5. This is the exact risk recorded as unassessed in Spec §4.4 / §7 Q4 ('not guaranteed to be stable across Python version upgrades or platform changes').\nInterim mitigation applied 2026-04-29: re-pinned PYTHONHASHSEED=0 in the wbbaw-batch job environment and ran ETL_MODE=FULL to rebuild dim/fact keys consistently. Nightly loads green again from 2026-04-30. This restores the OLD seed; it does not fix the underlying dependence on a salted hash. Escalated to DEV as DEF-WBB-0060.",
+    "resolution_notes": null,
+    "defect_reference": "DEF-WBB-0060"
   }
 ]

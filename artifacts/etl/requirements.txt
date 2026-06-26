@@ -1,0 +1,16 @@
+# WBBAW Nightly ETL — pinned runtime dependencies
+# ---------------------------------------------------------------------------
+# Component:  WBBAW-BATCH (wbbxtr / wbbldr / wbb_common)
+# Owner:      WBB Data Services / Platform SRE
+# Runtime:    Python 3.12  (see runtime_environment.md for base image + history)
+#
+# Pins reflect the 2026-04-28 platform refresh (CHG-WBB-0058):
+#   psycopg2-binary  2.9.5  -> 2.9.9
+#   (interpreter)    3.10.13 -> 3.12.3   # set by base image, not pinned here
+#
+# Earlier pin set (pre-2026-04-28, for reference):
+#   psycopg2-binary==2.9.5      # Python 3.10.13, Debian 11 base image
+# ---------------------------------------------------------------------------
+
+psycopg2-binary==2.9.9
+PyYAML==6.0.1

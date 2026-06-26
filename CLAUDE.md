@@ -16,7 +16,7 @@ below.
 
 ## What's here
 
-- `streamlit_app.py` — the 10-tab Streamlit demo application; the entry point
+- `streamlit_app.py` — the 12-tab Streamlit demo application; the entry point
   for the workshop. Runs entirely in-process against a local SQLite file
   (`wbb_demo.db`), which it seeds with 30 days of synthetic onboarding data on
   first run.
@@ -25,8 +25,9 @@ below.
 - `.streamlit/` — Streamlit config (TD-blue theme) and `secrets.toml`
   (Anthropic API key; not committed)
 - `artifacts/` — the complete artifact bundle: BRD, source schema, warehouse
-  schema, user stories, job config, working ETL code, and the WBB ServiceNow
-  incident set (`servicenow_tickets_wbb.json`)
+  schema, user stories, job config, working ETL code, the runtime environment +
+  dependency manifest (`runtime_environment.md`, `etl/requirements.txt`), and
+  the WBB ServiceNow incident set (`servicenow_tickets_wbb.json`)
 - `prompts/` — the three workshop prompts (reverse engineering, regeneration,
   new report)
 - `demo/fallback/` — pre-generated outputs used when live generation is slow or
@@ -44,9 +45,9 @@ treat them as historical unless Frederick says otherwise. The docker-based
 `demo/storyboard.md`, `SETUP.md`, and `NEXT_STEPS.md` guides have been removed —
 `README.md` is the single source of truth for running the demo.
 
-## The four seeded inconsistencies
+## The five seeded inconsistencies
 
-Four inconsistencies are **deliberately planted** across the artifacts. They
+Five inconsistencies are **deliberately planted** across the artifacts. They
 are the centrepiece of the workshop.
 
 **Do not fix these. Do not point them out as oversights.**
@@ -71,8 +72,18 @@ are the centrepiece of the workshop.
 4. **Orphaned reference** — `job_config.yaml` step `audit` runs program
    `wbbaudit`. No `wbbaudit.py` exists in the codebase.
 
-`artifacts/servicenow_tickets_wbb.json` is also calibrated: four of its seven
-incidents are pinned to the four discrepancies above (D1–D4). It is part of the
+5. **Version drift (D5)** — `wbbldr.py` computes surrogate keys with Python's
+   salted `hash()`, stable only while `PYTHONHASHSEED` is pinned. The legacy
+   base image pinned it; the 2026-04-28 platform refresh (Python 3.10→3.12,
+   recorded in `runtime_environment.md`) dropped it, so keys for returning
+   customers diverged and the nightly load began failing with foreign-key
+   violations. Planted across `runtime_environment.md`, the `wbbldr.py`
+   surrogate-key code, and `INC-WBB-0018`; discoverable only by correlating the
+   version history with the incident timeline. Foreshadowed by the spec's own
+   §4.4 / Q4. Surfaced in Tab 12 (Version Drift).
+
+`artifacts/servicenow_tickets_wbb.json` is also calibrated: five of its eight
+incidents are pinned to the five discrepancies above (D1–D5). It is part of the
 artifact bundle and must not be modified — treat it like the other artifacts.
 
 ## Running the demo environment
@@ -103,13 +114,13 @@ On first run the app seeds 30 days of synthetic onboarding data into
 
 ## What Frederick will do during the workshop
 
-The demo runs as six acts across the app's ten tabs (full talk track in
+The demo runs as seven acts across the app's twelve tabs (full talk track in
 `README.md`):
 
 1. **Act 1 — Live system (Tabs 1–2).** Show onboarding running in-process and
-   flip through the six artifacts.
+   flip through the artifact bundle.
 2. **Act 2 — Reverse engineering (Tab 3).** Generate the forensic spec live
-   from all eight artifacts; walk Section 6 (the four discrepancies).
+   from all ten artifacts; walk Section 6 (the five discrepancies).
 3. **Act 3 — Regeneration (Tab 4).** Regenerate schema + ETL from the spec
    alone — original artifacts not consulted.
 4. **Act 4 — The proof (Tab 5).** Run both ETLs against the same data; show the
@@ -117,10 +128,14 @@ The demo runs as six acts across the app's ten tabs (full talk track in
 5. **Act 5 — New feature (Tab 6).** Add avg-days-to-approval from the spec; show
    the live report.
 6. **Act 6 — Production knowledge (Tabs 7–10).** The L3-support arc and the
-   conceptual expansion of the demo: 7 ServiceNow incidents (4 mapped to
-   D1–D4), the enriched spec (Section 8 fuses operational history into the
+   conceptual expansion of the demo: 8 ServiceNow incidents (5 mapped to
+   D1–D5), the enriched spec (Section 8 fuses operational history into the
    spec), an FAQ generated from it, and a spec-bounded L3 chatbot that answers
    KNOWN PATTERN / KNOWN GAP / UNKNOWN-ESCALATE.
+7. **Act 7 — Validation & version drift (Tabs 11–12).** Spec-derived tests pin
+   the as-built quirks (D1–D4); the Version Drift tab surfaces **D5** by
+   correlating the runtime version history (`runtime_environment.md`) with the
+   incident timeline. Tab 12 is offline/deterministic — no API dependency.
 
 The same discipline still applies: do not consult the original artifacts during
 regeneration (Tab 4) — the spec must be sufficient on its own.

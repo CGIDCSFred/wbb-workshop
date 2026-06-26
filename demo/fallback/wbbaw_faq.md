@@ -31,6 +31,10 @@ The extract completed successfully but encountered at least one decline_reason_c
 
 Set `RESTART_FROM=load` to restart from the load step (reuses the existing staging file). Set `RESTART_FROM=extract` to re-run the full extract and load. For a complete historical reload, set `ETL_MODE=FULL`. [Spec §5.3]
 
+**Q: The nightly load started failing with foreign-key violations on fact_application right after a platform upgrade — what happened?**
+
+This is discrepancy D5 (DEF-WBB-0060), first seen as INC-WBB-0018 after the 2026-04-28 platform refresh. The surrogate keys are computed in application code with Python's salted `hash()`, so they only stay stable while `PYTHONHASHSEED` is pinned. The legacy base image pinned it to `0`; the standardised image dropped it, so keys for existing customers changed and no longer matched the rows already in `dim_customer`. Returning customers fail the FK; new customers load fine. Interim fix: re-pin `PYTHONHASHSEED=0` and run a full reload (`ETL_MODE=FULL`). Treat any base-image or interpreter change as a data-integrity change, not just infrastructure. [Spec §6 D5, §5.10, §8.2 Pattern 3, §8.5 G4]
+
 ---
 
 ## Data & Schema
@@ -70,7 +74,7 @@ Three names, one concept:
 
 **Q: How is the surrogate key for dim_customer generated?**
 
-Using Python's built-in `hash()` function: `abs(hash(('cust', customer_id))) & ((1 << 63) - 1)`. This is deterministic within a Python process for integer inputs but is not guaranteed stable across Python version upgrades or platform migrations. [Spec §4.4]
+Using Python's built-in `hash()` function: `abs(hash(('cust', customer_id))) & ((1 << 63) - 1)`. Because the hash input is a tuple containing a string, CPython salts it per process via `PYTHONHASHSEED`, so the key is only stable while that seed is pinned — it is **not** guaranteed stable across Python version upgrades or platform migrations. This risk was realised in production by the 2026-04-28 platform refresh (discrepancy D5 / INC-WBB-0018). [Spec §4.4, §6 D5]
 
 **Q: What does days_to_decision measure?**
 

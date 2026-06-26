@@ -1,6 +1,6 @@
 ### Section 8: Operational History and Known Failure Patterns
 
-This section was produced by cross-referencing seven ServiceNow incidents raised against the WBBAW pipeline between 2026-02-03 and 2026-04-22 against the forensic specification (Sections 1–7). The incidents cover configuration items WBBAW-BATCH, WBBAW-REPORT, and WBBAW-DATA. Four incidents closed as Known Pattern or Known Gap; two remain open (one as an active defect, one as a backlog item); one was a documentation gap closed by analyst guidance. Sections 1–7 are carried forward from the forensic specification without modification.
+This section was produced by cross-referencing eight ServiceNow incidents raised against the WBBAW pipeline between 2026-02-03 and 2026-04-29 against the forensic specification (Sections 1–7). The incidents cover configuration items WBBAW-BATCH, WBBAW-REPORT, and WBBAW-DATA. Five map directly to the discrepancies catalogued in Section 6 (D1–D5); the remainder surface open questions or were closed by analyst guidance. The most recent incident (INC-WBB-0018) is an active P1 defect mitigated by an interim workaround. Sections 1–7 are carried forward from the forensic specification without modification.
 
 ---
 
@@ -17,6 +17,9 @@ The load step issues one commit after all dimension and fact rows are processed.
 
 **B4 — business_category maps to segment in warehouse**
 The source column `wbb.customer.business_category` maps to `wbbaw.dim_customer.segment` at load time. Confirmed by analyst incident (INC-WBB-0014): queries using `business_segment` (BRD name) or `business_category` (source name) against the warehouse fail; only `segment` is the correct warehouse column name. [Spec §6 D2; INC-WBB-0014]
+
+**B5 — Surrogate keys are computed in application code and depend on the runtime**
+The ETL derives dimension and fact surrogate keys with Python's salted `hash()` (`wbbldr.py`), not via the database. Key stability across deployments is a function of the runtime configuration (`PYTHONHASHSEED`), not the schema. Confirmed by INC-WBB-0018: the 2026-04-28 platform refresh changed the effective seed and broke `fact_application` → `dim_customer` referential integrity for returning customers. [Spec §4.4, §5.10, §6 D5; INC-WBB-0018]
 
 ---
 
@@ -43,6 +46,19 @@ The source column `wbb.customer.business_category` maps to `wbbaw.dim_customer.s
 - **Resolution procedure:** Monitor job runner dashboard manually. Do not rely on Slack channel for ETL alerts until DEF-WBB-0055 is resolved.
 - **Ticket provenance:** [INC-WBB-0017; related: INC-WBB-0011, DEF-WBB-0041]
 
+**Pattern 3 — Post-upgrade foreign-key violations on fact_application (surrogate-key drift)**
+- **Affected component:** WBBAW-BATCH, `wbbldr.py` surrogate-key generation; runtime environment
+- **Observed symptom:** The night after a runtime / base-image change, the load step aborts with foreign-key violations — `fact_application.customer_key` not present in `dim_customer` — for returning customers. Applications from new customers load normally. Extract and staging are unaffected.
+- **Root cause:** Surrogate keys use `abs(hash(('cust', customer_id)))`; the string element makes the hash salted by `PYTHONHASHSEED`. The legacy base image pinned `PYTHONHASHSEED=0`; the 2026-04-28 standardised image (CHG-WBB-0058) dropped it, so keys diverge from their stored values. The dimension upsert keeps the old `customer_key` (ON CONFLICT does not update it) while the fact load writes the new one.
+- **Current status:** Mitigated. Interim workaround applied (re-pin `PYTHONHASHSEED=0` + full reload). DEF-WBB-0060 open for the durable fix.
+- **Resolution procedure for new L3 engineer:**
+  1. Confirm the load log shows FK violations on `fact_application_customer_key_fkey`, affecting returning customers only.
+  2. Check `runtime_environment.md` / recent change records for a base-image or interpreter change in the preceding 24 hours.
+  3. Confirm `PYTHONHASHSEED` is unset in the current job environment (`env | grep PYTHONHASHSEED`).
+  4. Re-pin `PYTHONHASHSEED=0` in the wbbaw-batch job environment and re-run with `ETL_MODE=FULL` to rebuild keys consistently.
+  5. Escalate to DEV referencing DEF-WBB-0060 for a runtime-independent key derivation.
+- **Ticket provenance:** [INC-WBB-0018; DEF-WBB-0060]
+
 ---
 
 #### 8.3 Active Workarounds
@@ -54,6 +70,14 @@ The source column `wbb.customer.business_category` maps to `wbbaw.dim_customer.s
 - **Risk accepted:** No automated record count comparison between source and warehouse. The `COMPARE_COUNTS` and `ALERT_ON_VARIANCE` parameters are not enforced. A load that silently drops records will not be detected by the pipeline.
 - **Resolution dependency:** Implementation of wbbaudit.py (DEF-WBB-0041).
 - **Ticket provenance:** [INC-WBB-0011]
+
+**Workaround 2 — PYTHONHASHSEED re-pin + full reload (INC-WBB-0018)**
+- **Component affected:** wbbaw-batch job environment; dimension/fact surrogate keys
+- **What the workaround does:** Restores `PYTHONHASHSEED=0` in the job environment (matching the legacy image) and triggers a full reload (`ETL_MODE=FULL`) so all dimension and fact keys are recomputed consistently under the pinned seed.
+- **Change record:** applied 2026-04-29 (follow-up to CHG-WBB-0058)
+- **Risk accepted:** The ETL still depends on a salted hash for key stability. Any future runtime change that does not preserve `PYTHONHASHSEED=0` will reintroduce the failure. The pin is a mitigation, not a fix.
+- **Resolution dependency:** Runtime-independent surrogate-key derivation (DEF-WBB-0060).
+- **Ticket provenance:** [INC-WBB-0018]
 
 ---
 
@@ -83,6 +107,12 @@ The source column `wbb.customer.business_category` maps to `wbbaw.dim_customer.s
 - **Evidence:** INC-WBB-0015 confirmed no batched commit loop in load code.
 - **Current state:** No current operational impact at nightly volumes of 8,000–12,000 rows. Risk increases if volumes grow substantially.
 
+**DEF-WBB-0060 — Surrogate keys depend on PYTHONHASHSEED (runtime-coupled keys)**
+- **Defect summary:** Application-level surrogate keys (`wbbldr.py`) are derived from Python's salted `hash()` and are only stable while `PYTHONHASHSEED` is pinned. They are coupled to runtime configuration rather than to the data.
+- **Spec claim contradicted:** Spec §4.4 / §7 Q4 flagged this as an unassessed risk; §6 D5 documents its realisation. The keys are not, in fact, stable across platform changes.
+- **Evidence:** INC-WBB-0018 — FK violations after the 2026-04-28 platform refresh; root cause traced to the dropped `PYTHONHASHSEED=0` override.
+- **Current state:** Interim mitigation in place (Workaround 2). Durable fix (deterministic, runtime-independent key derivation) not yet implemented.
+
 ---
 
 #### 8.5 Operational Guidance Confirmed
@@ -96,9 +126,12 @@ The vw_weekly_onboarding_volume view counts by submission date, not approval dat
 **G3 — wbbaudit bypass is permanently in place until DEF-WBB-0041 is resolved**
 The audit step is bypassed by CHG-WBB-0029. Count variances between source and warehouse will not be automatically detected. Manual spot checks against source counts are advisable after any full reload. [INC-WBB-0011]
 
+**G4 — Application-level keys are not stable across runtime changes**
+Surrogate keys for `dim_customer` / `fact_application` are computed by Python's salted `hash()` and only stay stable while `PYTHONHASHSEED` is pinned in the job environment. Before any runtime, base-image, or interpreter change, confirm `PYTHONHASHSEED=0` is preserved, or plan a full reload immediately after. Treat a base-image change as a data-integrity change, not just an infrastructure one. [Spec §6 D5, §5.10; INC-WBB-0018]
+
 ---
 
-*Section 8 added from operational history — six months of production incidents (2026-02-03 to 2026-04-22), seven incidents analysed, configuration items WBBAW-BATCH, WBBAW-REPORT, WBBAW-DATA.*
+*Section 8 added from operational history — six months of production incidents (2026-02-03 to 2026-04-29), eight incidents analysed, configuration items WBBAW-BATCH, WBBAW-REPORT, WBBAW-DATA.*
 
 ---
 
@@ -111,3 +144,5 @@ The following items are added to Section 7 based on unresolved defects identifie
 **Q12 — What is the remediation plan for the decline_description gap?** [Added from operational history, INC-WBB-0013, DEF-WBB-0048] The BRD §6 report is currently undeliverable. Remediation requires both a fact_application schema amendment and a wbbldr.py load code change. Not specified whether this is planned, or whether the business will accept the current gap.
 
 **Q13 — What is the plan to update vw_weekly_onboarding_volume to use approved_date_key?** [Added from operational history, INC-WBB-0012, WBB-AW-020] The approved_dt column was backfilled in the source schema (2026-01-08). The ETL populates approved_date_key on the fact. The view has not been updated. Backlog item WBB-AW-020 exists but has no sprint assignment.
+
+**Q14 — When will surrogate-key generation be made runtime-independent?** [Added from operational history, INC-WBB-0018, DEF-WBB-0060] The interim mitigation re-pins `PYTHONHASHSEED=0`, but the keys remain coupled to runtime configuration rather than to the data. Not specified whether a deterministic key derivation (e.g. a stable hash over the integer natural key, or a database-generated surrogate) is planned, or whether the environment pin is considered a sufficient long-term control.
