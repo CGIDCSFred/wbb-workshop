@@ -49,7 +49,7 @@ The demo runs as a single Streamlit application — no Docker required.
 | 4 Regenerated | Schema + ETL rebuilt from spec alone — live generation streams side-by-side with a reference run | The spec is sufficient — original code not consulted |
 | 5 Proof | Side-by-side code diff + equivalence check | Different code, identical business outputs |
 | 6 New Feature | Avg-days-to-approval added from spec as launchpad | The spec enables new work, not just retrospective analysis |
-| 7 Production Tickets | 7 WBB ServiceNow incidents | Production knowledge connects back to the spec |
+| 7 Production Tickets | 8 WBB ServiceNow incidents | Production knowledge connects back to the spec |
 | 8 Enriched Spec | Spec + operational history | One document serves delivery and L3 support |
 | 9 FAQ | Generated from enriched spec | Knowledge made accessible without reading the spec |
 | 10 L3 Chatbot | Embedded Claude chatbot | Knowledge made interactive — bounded by the spec |
@@ -347,11 +347,13 @@ These are deliberately planted. Do not fix them — they are the centrepiece of 
 | `prompts/01_reverse_engineering.md` | Reverse-engineering prompt |
 | `prompts/02_regeneration.md` | Regeneration prompt |
 | `prompts/03_new_report.md` | New feature prompt |
+| `prompts/04_generate_tests.md` | Spec-derived test-generation prompt (Tab 11) |
 | `demo/fallback/wbbaw_spec_v1.md` | Pre-built forensic spec (fallback for Tab 3) |
 | `demo/fallback/regenerated/` | Pre-built regenerated artifacts (fallback for Tab 4) |
 | `demo/fallback/new_report.md` | Pre-built new feature document (fallback for Tab 6) |
 | `demo/fallback/wbbaw_spec_section8.md` | Operational history section (Tab 8) |
 | `demo/fallback/wbbaw_faq.md` | FAQ generated from enriched spec (Tab 9) |
+| `demo/fallback/test_wbbaw_from_spec.py` | Spec-derived characterization tests shown in Tab 11 |
 | `spec/` | Live spec output saved here (Tab 3) |
 | `regenerated/` | Live regeneration output saved here (Tab 4) |
 
