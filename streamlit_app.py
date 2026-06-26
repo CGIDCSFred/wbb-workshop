@@ -1344,8 +1344,8 @@ def _golden_test_data() -> list:
             rows.append({
                 "Case": name, "Status": status, "Submitted": sub, "Decided": dec or "—",
                 "Loaded?": "yes", "Exp. week": week,
-                "Approved": appr, "Declined": decl,
-                "Days": "—" if days is None else days,
+                "Approved": str(appr), "Declined": str(decl),
+                "Days": "—" if days is None else str(days),
             })
         else:
             reason = "test customer" if is_test else "ABANDONED"
