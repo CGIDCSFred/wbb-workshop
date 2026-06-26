@@ -18,8 +18,13 @@ __pycache__/
 # macOS
 .DS_Store
 
-# Demo output directories — kept as empty placeholders
-# spec/ and regenerated/ are populated live during the demo
+# Demo output directories — kept as empty placeholders.
+# spec/ and regenerated/ are populated live during the demo; ignore the
+# generated outputs but keep the .gitkeep placeholders tracked.
+spec/*
+!spec/.gitkeep
+regenerated/*
+!regenerated/.gitkeep
 
 # SQLite database (generated at runtime)
 *.db
